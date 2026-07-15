@@ -1,14 +1,19 @@
 import { Graphics } from 'pixi.js'
 import { getStroke } from 'perfect-freehand'
 import type { Brush, Stroke, StrokePoint } from '../brush-types'
+import { hashSeed } from '../random'
 
 const TAIL_POINTS = 14
 
 /** Displaces the last few points perpendicular to the local tangent, growing toward the tip,
- * so the tail ripples like a flicking tail while the rest of the line stays put. */
-function animateTail(points: StrokePoint[], size: number, time: number): StrokePoint[] {
+ * so the tail ripples like a flicking tail while the rest of the line stays put. Strokes keep
+ * animating even after being committed, so each gets its own phase offset (from its id) — otherwise
+ * every wiggly line on the canvas would wiggle in perfect lockstep. */
+function animateTail(stroke: Stroke, time: number): StrokePoint[] {
+  const points = stroke.points
   if (points.length < 3) return points
 
+  const phase = (hashSeed(stroke.id) % 1000) / 1000
   const tailLength = Math.min(points.length, TAIL_POINTS)
   const startIndex = points.length - tailLength
   const head = points.slice(0, startIndex)
@@ -23,8 +28,8 @@ function animateTail(points: StrokePoint[], size: number, time: number): StrokeP
     const len = Math.hypot(dx, dy) || 1
     const nx = -dy / len
     const ny = dx / len
-    const amplitude = size * 0.55 * t
-    const wiggle = Math.sin(time * 7 + t * 9) * amplitude
+    const amplitude = stroke.size * 0.55 * t
+    const wiggle = Math.sin(time * 7 + phase * Math.PI * 2 + t * 9) * amplitude
     return { x: p.x + nx * wiggle, y: p.y + ny * wiggle, pressure: p.pressure }
   })
 
@@ -54,7 +59,7 @@ export const wobbleBrush: Brush = {
       return g
     }
 
-    const points = time !== undefined ? animateTail(stroke.points, stroke.size, time) : stroke.points
+    const points = time !== undefined ? animateTail(stroke, time) : stroke.points
     const strokeOutline = outline(stroke, points)
     if (strokeOutline.length < 3) return g
 

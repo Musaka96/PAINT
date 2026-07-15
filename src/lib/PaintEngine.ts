@@ -1,4 +1,4 @@
-import { Application, Container, Graphics, RenderTexture, Sprite } from 'pixi.js'
+import { Application, Graphics, RenderTexture, Sprite } from 'pixi.js'
 import type { BrushId, BrushTextures, Stroke, StrokePoint } from './brush-types'
 import { brushes } from './brushes'
 import { createSoftTexture, createRoughTexture } from './textures'
@@ -11,7 +11,6 @@ export class PaintEngine {
   readonly height: number
 
   private paintedTexture: RenderTexture
-  private previewContainer = new Container()
   private textures: BrushTextures
 
   private strokes: Stroke[] = []
@@ -34,14 +33,14 @@ export class PaintEngine {
 
     const paintedSprite = new Sprite(this.paintedTexture)
     app.stage.addChild(paintedSprite)
-    app.stage.addChild(this.previewContainer)
 
-    this.clearTexture()
+    this.redraw()
 
-    // Keeps animated brushes (e.g. the wiggly tail) redrawing every frame while a stroke is in progress,
-    // even if the pointer briefly holds still.
+    // Committed wiggly strokes keep animating forever, and the in-progress stroke needs live
+    // feedback — in both cases we redraw the whole picture from `strokes` every frame. Once
+    // nothing needs animating, this becomes a no-op and the canvas stays static (cheap).
     app.ticker.add(() => {
-      if (this.currentStroke) this.updatePreview()
+      if (this.isAnimating()) this.redraw()
     })
   }
 
@@ -85,26 +84,25 @@ export class PaintEngine {
       size: this.size,
       points: [{ x, y, pressure }],
     }
-    this.updatePreview()
+    this.redraw()
     this.emitHistory()
   }
 
   pointerMove(x: number, y: number, pressure: number) {
     if (!this.currentStroke) return
     this.appendPoint(this.currentStroke.points, { x, y, pressure })
-    this.updatePreview()
+    this.redraw()
   }
 
   pointerUp() {
     if (!this.currentStroke) return
     const stroke = this.currentStroke
     this.currentStroke = null
-    this.previewContainer.removeChildren()
 
     if (stroke.points.length > 0) {
       this.strokes.push(stroke)
-      this.bakeStroke(stroke)
     }
+    this.redraw()
     this.emitHistory()
   }
 
@@ -112,7 +110,7 @@ export class PaintEngine {
     if (this.strokes.length === 0) return
     const stroke = this.strokes.pop()!
     this.redoStack.push(stroke)
-    this.rebuild()
+    this.redraw()
     this.emitHistory()
   }
 
@@ -120,7 +118,7 @@ export class PaintEngine {
     if (this.redoStack.length === 0) return
     const stroke = this.redoStack.pop()!
     this.strokes.push(stroke)
-    this.bakeStroke(stroke)
+    this.redraw()
     this.emitHistory()
   }
 
@@ -128,7 +126,7 @@ export class PaintEngine {
     if (this.strokes.length === 0) return
     this.strokes = []
     this.redoStack = []
-    this.clearTexture()
+    this.redraw()
     this.emitHistory()
   }
 
@@ -151,28 +149,24 @@ export class PaintEngine {
     points.push(point)
   }
 
-  private updatePreview() {
-    this.previewContainer.removeChildren()
-    if (!this.currentStroke) return
-    const brush = brushes[this.currentStroke.brush]
-    this.previewContainer.addChild(brush.render(this.currentStroke, this.textures, performance.now() / 1000))
+  private isAnimating(): boolean {
+    return this.currentStroke !== null || this.strokes.some((s) => s.brush === 'wobble')
   }
 
-  private bakeStroke(stroke: Stroke) {
-    const brush = brushes[stroke.brush]
-    const g = brush.render(stroke, this.textures)
-    this.app.renderer.render({ container: g, target: this.paintedTexture, clear: false })
-    g.destroy({ children: true })
-  }
-
-  private clearTexture() {
+  private redraw() {
+    const time = performance.now() / 1000
     const bg = new Graphics().rect(0, 0, this.width, this.height).fill({ color: BACKGROUND_COLOR })
     this.app.renderer.render({ container: bg, target: this.paintedTexture, clear: true })
     bg.destroy()
+
+    for (const stroke of this.strokes) this.paint(stroke, time)
+    if (this.currentStroke) this.paint(this.currentStroke, time)
   }
 
-  private rebuild() {
-    this.clearTexture()
-    for (const stroke of this.strokes) this.bakeStroke(stroke)
+  private paint(stroke: Stroke, time: number) {
+    const brush = brushes[stroke.brush]
+    const g = brush.render(stroke, this.textures, brush.id === 'wobble' ? time : undefined)
+    this.app.renderer.render({ container: g, target: this.paintedTexture, clear: false })
+    g.destroy({ children: true })
   }
 }
