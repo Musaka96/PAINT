@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
 import { PaintEngine } from '@/lib/PaintEngine'
-import type { BrushId } from '@/lib/brush-types'
+import type { BrushId, WiggleSettings } from '@/lib/brush-types'
 
 export interface PaintCanvasHandle {
   undo: () => void
@@ -13,13 +13,14 @@ interface PaintCanvasProps {
   brush: BrushId
   color: string
   size: number
+  wiggle: WiggleSettings
   width: number
   height: number
   onHistoryChange: (canUndo: boolean, canRedo: boolean) => void
 }
 
 export const PaintCanvas = forwardRef<PaintCanvasHandle, PaintCanvasProps>(function PaintCanvas(
-  { brush, color, size, width, height, onHistoryChange },
+  { brush, color, size, wiggle, width, height, onHistoryChange },
   ref,
 ) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -57,6 +58,7 @@ export const PaintCanvas = forwardRef<PaintCanvasHandle, PaintCanvasProps>(funct
       engine.setBrush(brush)
       engine.setColor(color)
       engine.setSize(size)
+      engine.setWiggle(wiggle)
       engine.setHistoryListener(onHistoryChange)
     })
 
@@ -82,6 +84,10 @@ export const PaintCanvas = forwardRef<PaintCanvasHandle, PaintCanvasProps>(funct
   useEffect(() => {
     engineRef.current?.setSize(size)
   }, [size])
+
+  useEffect(() => {
+    engineRef.current?.setWiggle(wiggle)
+  }, [wiggle])
 
   useEffect(() => {
     const canvas = canvasRef.current

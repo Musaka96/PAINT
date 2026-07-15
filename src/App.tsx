@@ -2,7 +2,7 @@ import { useRef, useState } from 'react'
 import { PaintCanvas, type PaintCanvasHandle } from '@/components/PaintCanvas'
 import { Toolbar } from '@/components/Toolbar'
 import { TooltipProvider } from '@/components/ui/tooltip'
-import type { BrushId } from '@/lib/brush-types'
+import { DEFAULT_WIGGLE, type BrushId, type WiggleSettings } from '@/lib/brush-types'
 
 const CANVAS_WIDTH = 900
 const CANVAS_HEIGHT = 600
@@ -12,8 +12,13 @@ function App() {
   const [brush, setBrush] = useState<BrushId>('watercolor')
   const [color, setColor] = useState('#1e1e2e')
   const [size, setSize] = useState(18)
+  const [wiggle, setWiggle] = useState<WiggleSettings>(DEFAULT_WIGGLE)
   const [canUndo, setCanUndo] = useState(false)
   const [canRedo, setCanRedo] = useState(false)
+
+  const handleWiggleChange = (settings: Partial<WiggleSettings>) => {
+    setWiggle((prev) => ({ ...prev, ...settings }))
+  }
 
   const handleExport = async () => {
     const dataUrl = await canvasHandleRef.current?.exportPNG()
@@ -36,6 +41,8 @@ function App() {
           onColorChange={setColor}
           size={size}
           onSizeChange={setSize}
+          wiggle={wiggle}
+          onWiggleChange={handleWiggleChange}
           canUndo={canUndo}
           canRedo={canRedo}
           onUndo={() => canvasHandleRef.current?.undo()}
@@ -49,6 +56,7 @@ function App() {
           brush={brush}
           color={color}
           size={size}
+          wiggle={wiggle}
           width={CANVAS_WIDTH}
           height={CANVAS_HEIGHT}
           onHistoryChange={(undo, redo) => {

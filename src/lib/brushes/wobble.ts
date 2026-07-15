@@ -1,13 +1,23 @@
 import { Graphics } from 'pixi.js'
 import { getStrokePoints } from 'perfect-freehand'
-import type { Brush, Stroke } from '../brush-types'
+import { DEFAULT_WIGGLE, type Brush, type Stroke, type WigglePattern } from '../brush-types'
 import { hashSeed } from '../random'
 
-const AMPLITUDE_RATIO = 0.5
-const SPATIAL_FREQUENCY = 0.045
-const SPEED = 5
+function waveValue(pattern: WigglePattern, phase: number): number {
+  switch (pattern) {
+    case 'square':
+      return Math.sin(phase) >= 0 ? 1 : -1
+    case 'zigzag': {
+      const t = (((phase % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2)) / (Math.PI * 2)
+      return t < 0.5 ? 4 * t - 1 : 3 - 4 * t
+    }
+    case 'sine':
+    default:
+      return Math.sin(phase)
+  }
+}
 
-/** A constant-width stroked line (not a filled brush shape) with a sine wave riding its whole
+/** A constant-width stroked line (not a filled brush shape) with a wave riding its whole
  * length — a traveling ripple, not just a wiggle at the tip. Each stroke gets its own phase
  * offset (from its id) so multiple wiggly lines don't ripple in lockstep. */
 function wavyPath(stroke: Stroke, time?: number) {
@@ -20,11 +30,14 @@ function wavyPath(stroke: Stroke, time?: number) {
     return strokePoints.map(({ point: [x, y] }) => ({ x, y }))
   }
 
-  const phase = ((hashSeed(stroke.id) % 1000) / 1000) * Math.PI * 2
-  const amplitude = stroke.size * AMPLITUDE_RATIO
+  const settings = stroke.wiggle ?? DEFAULT_WIGGLE
+  const phaseOffset = ((hashSeed(stroke.id) % 1000) / 1000) * Math.PI * 2
+  const amplitude = stroke.size * settings.amplitude
+  const frequency = (Math.PI * 2) / Math.max(settings.wavelength, 1)
 
   return strokePoints.map(({ point: [x, y], vector: [vx, vy], runningLength }) => {
-    const wiggle = Math.sin(time * SPEED - runningLength * SPATIAL_FREQUENCY + phase) * amplitude
+    const phase = time * settings.speed - runningLength * frequency + phaseOffset
+    const wiggle = waveValue(settings.pattern, phase) * amplitude
     return { x: x - vy * wiggle, y: y + vx * wiggle }
   })
 }

@@ -1,5 +1,5 @@
 import { Application, Graphics, RenderTexture, Sprite } from 'pixi.js'
-import type { BrushId, BrushTextures, Stroke, StrokePoint } from './brush-types'
+import { DEFAULT_WIGGLE, type BrushId, type BrushTextures, type Stroke, type StrokePoint, type WiggleSettings } from './brush-types'
 import { brushes } from './brushes'
 import { createSoftTexture, createRoughTexture } from './textures'
 
@@ -20,6 +20,7 @@ export class PaintEngine {
   private brushId: BrushId = 'round'
   private color = '#1e1e2e'
   private size = 18
+  private wiggle: WiggleSettings = { ...DEFAULT_WIGGLE }
 
   private onHistoryChange?: (canUndo: boolean, canRedo: boolean) => void
 
@@ -75,6 +76,10 @@ export class PaintEngine {
     this.size = size
   }
 
+  setWiggle(settings: Partial<WiggleSettings>) {
+    this.wiggle = { ...this.wiggle, ...settings }
+  }
+
   pointerDown(x: number, y: number, pressure: number) {
     this.redoStack = []
     this.currentStroke = {
@@ -83,6 +88,7 @@ export class PaintEngine {
       color: this.color,
       size: this.size,
       points: [{ x, y, pressure }],
+      wiggle: this.brushId === 'wobble' ? { ...this.wiggle } : undefined,
     }
     this.redraw()
     this.emitHistory()

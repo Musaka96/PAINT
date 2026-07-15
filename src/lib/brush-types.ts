@@ -8,12 +8,33 @@ export interface StrokePoint {
 
 export type BrushId = 'round' | 'wobble' | 'watercolor'
 
+export type WigglePattern = 'sine' | 'zigzag' | 'square'
+
+export interface WiggleSettings {
+  /** Wave height, as a multiple of brush size. */
+  amplitude: number
+  /** Distance in px for one full wave cycle. */
+  wavelength: number
+  /** Animation rate, in radians/sec. */
+  speed: number
+  pattern: WigglePattern
+}
+
+export const DEFAULT_WIGGLE: WiggleSettings = {
+  amplitude: 0.5,
+  wavelength: 140,
+  speed: 5,
+  pattern: 'sine',
+}
+
 export interface Stroke {
   id: string
   brush: BrushId
   color: string
   size: number
   points: StrokePoint[]
+  /** Only set for 'wobble' strokes — captured at draw time, like color/size. */
+  wiggle?: WiggleSettings
 }
 
 export interface BrushTextures {
