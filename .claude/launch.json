@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "vite-dev",
+      "runtimeExecutable": "E:\\Projects\\PAINT\\.claude\\dev-server.cmd",
+      "runtimeArgs": [],
+      "port": 5173
+    }
+  ]
+}
