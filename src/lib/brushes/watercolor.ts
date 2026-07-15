@@ -1,77 +1,58 @@
-import { Container, Sprite } from 'pixi.js'
-import type { Brush, Stroke, StrokePoint } from '../brush-types'
-import { mulberry32, hashSeed } from '../random'
+import { AlphaFilter, BlurFilter, Container, Graphics } from 'pixi.js'
+import { getStroke } from 'perfect-freehand'
+import type { Brush, Stroke } from '../brush-types'
 
-function resample(points: StrokePoint[], spacing: number): StrokePoint[] {
-  if (points.length === 0) return []
-  if (points.length === 1) return [points[0]]
-
-  const out: StrokePoint[] = [points[0]]
-  let carry = 0
-  for (let i = 1; i < points.length; i++) {
-    const a = points[i - 1]
-    const b = points[i]
-    const dx = b.x - a.x
-    const dy = b.y - a.y
-    const dist = Math.hypot(dx, dy)
-    if (dist === 0) continue
-    let d = carry
-    while (d < dist) {
-      const t = d / dist
-      out.push({
-        x: a.x + dx * t,
-        y: a.y + dy * t,
-        pressure: a.pressure + (b.pressure - a.pressure) * t,
-      })
-      d += spacing
-    }
-    carry = d - dist
-  }
-  out.push(points[points.length - 1])
-  return out
+function outline(stroke: Stroke) {
+  const input = stroke.points.map((p) => [p.x, p.y, p.pressure] as [number, number, number])
+  return getStroke(input, {
+    size: stroke.size,
+    thinning: 0.5,
+    smoothing: 0.6,
+    streamline: 0.5,
+  })
 }
 
 export const watercolorBrush: Brush = {
   id: 'watercolor',
   label: 'Watercolor',
-  render(stroke: Stroke, textures) {
+  render(stroke) {
     const container = new Container()
     if (stroke.points.length === 0) return container
 
-    const rand = mulberry32(hashSeed(stroke.id))
-    const spacing = Math.max(stroke.size * 0.18, 2)
-    const samples = resample(stroke.points, spacing)
-
-    for (const p of samples) {
-      const baseScale = (stroke.size * (0.9 + p.pressure * 0.6)) / textures.rough.width
-
-      const halo = new Sprite(textures.rough)
-      halo.anchor.set(0.5)
-      halo.tint = stroke.color
-      halo.blendMode = 'multiply'
-      halo.alpha = 0.05 + rand() * 0.04
-      halo.scale.set(baseScale * (1.6 + rand() * 0.5))
-      halo.rotation = rand() * Math.PI * 2
-      halo.position.set(
-        p.x + (rand() - 0.5) * stroke.size * 0.3,
-        p.y + (rand() - 0.5) * stroke.size * 0.3,
-      )
-      container.addChild(halo)
-
-      const core = new Sprite(textures.soft)
-      core.anchor.set(0.5)
-      core.tint = stroke.color
-      core.blendMode = 'multiply'
-      core.alpha = 0.1 + rand() * 0.08
-      core.scale.set(baseScale * (0.9 + rand() * 0.3))
-      core.rotation = rand() * Math.PI * 2
-      core.position.set(
-        p.x + (rand() - 0.5) * stroke.size * 0.12,
-        p.y + (rand() - 0.5) * stroke.size * 0.12,
-      )
-      container.addChild(core)
+    if (stroke.points.length === 1) {
+      const [p] = stroke.points
+      const dot = new Graphics().circle(p.x, p.y, stroke.size / 2).fill({ color: stroke.color, alpha: 0.6 })
+      dot.blendMode = 'multiply'
+      container.addChild(dot)
+      return container
     }
 
+    const points = outline(stroke)
+    if (points.length < 3) return container
+    const polyPoints = points.map(([x, y]) => ({ x, y }))
+
+    // Soft bleed halo: one blurred fill behind the body, no per-dot stamping so a single
+    // stroke never darkens itself — only separate strokes overlapping will (via multiply).
+    // Fill fully opaque and apply opacity via AlphaFilter (not fill alpha): a stroke that
+    // doubles back on itself produces a self-intersecting polygon, and a plain translucent
+    // fill blends per overlapping triangle, darkening at the crossing. AlphaFilter forces an
+    // isolated offscreen render first, so opacity is applied once as a single composite.
+    const halo = new Graphics().poly(polyPoints).fill({ color: stroke.color })
+    halo.filters = [
+      new BlurFilter({ strength: Math.max(stroke.size * 0.35, 4), quality: 3 }),
+      new AlphaFilter({ alpha: 0.35 }),
+    ]
+    container.addChild(halo)
+
+    // Solid body — one continuous fill, full coverage like a real brush.
+    const body = new Graphics().poly(polyPoints).fill({ color: stroke.color })
+    body.filters = [new AlphaFilter({ alpha: 0.65 })]
+    container.addChild(body)
+
+    // blendMode goes on the outer (unfiltered) container, not on halo/body directly: a filter
+    // forces an isolated offscreen render, and applying 'multiply' to that isolated pass blends
+    // the shape against a transparent black backdrop instead of the painted canvas, crushing color.
+    container.blendMode = 'multiply'
     return container
   },
 }

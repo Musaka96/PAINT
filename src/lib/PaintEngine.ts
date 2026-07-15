@@ -37,6 +37,12 @@ export class PaintEngine {
     app.stage.addChild(this.previewContainer)
 
     this.clearTexture()
+
+    // Keeps animated brushes (e.g. the wiggly tail) redrawing every frame while a stroke is in progress,
+    // even if the pointer briefly holds still.
+    app.ticker.add(() => {
+      if (this.currentStroke) this.updatePreview()
+    })
   }
 
   static async create(canvas: HTMLCanvasElement, width: number, height: number): Promise<PaintEngine> {
@@ -149,7 +155,7 @@ export class PaintEngine {
     this.previewContainer.removeChildren()
     if (!this.currentStroke) return
     const brush = brushes[this.currentStroke.brush]
-    this.previewContainer.addChild(brush.render(this.currentStroke, this.textures))
+    this.previewContainer.addChild(brush.render(this.currentStroke, this.textures, performance.now() / 1000))
   }
 
   private bakeStroke(stroke: Stroke) {

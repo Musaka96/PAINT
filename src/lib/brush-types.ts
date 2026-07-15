@@ -24,5 +24,7 @@ export interface BrushTextures {
 export interface Brush {
   id: BrushId
   label: string
-  render(stroke: Stroke, textures: BrushTextures): Container
+  /** `time` (seconds) is only passed for the live in-progress preview, so brushes can animate;
+   * it's omitted when baking the final, settled stroke into the canvas. */
+  render(stroke: Stroke, textures: BrushTextures, time?: number): Container
 }
