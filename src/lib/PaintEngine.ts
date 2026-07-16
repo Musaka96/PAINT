@@ -21,8 +21,13 @@ export class PaintEngine {
   private wiggleGraphics = new Map<string, Graphics>()
 
   /** Live preview for the in-progress round/watercolor stroke only — wiggly strokes preview via
-   * wiggleLayer instead, since they're already drawn there whether committed or not. */
-  private previewContainer = new Container()
+   * wiggleLayer instead, since they're already drawn there whether committed or not.
+   * Rendered into a texture via an explicit renderer.render() call (same as baking), rather than
+   * added straight into the stage tree: a Container with blendMode + filtered children (as
+   * watercolor uses) composites correctly through an explicit render-to-texture call, but
+   * incorrectly (rendering black) when it's a permanent part of the auto-rendered stage tree. */
+  private previewTexture: RenderTexture
+  private previewSprite: Sprite
 
   private strokes: Stroke[] = []
   private redoStack: Stroke[] = []
@@ -41,12 +46,14 @@ export class PaintEngine {
     this.height = height
 
     this.paintedTexture = RenderTexture.create({ width, height, resolution: app.renderer.resolution })
+    this.previewTexture = RenderTexture.create({ width, height, resolution: app.renderer.resolution })
     this.textures = { soft: createSoftTexture(), rough: createRoughTexture() }
 
     const paintedSprite = new Sprite(this.paintedTexture)
+    this.previewSprite = new Sprite(this.previewTexture)
     app.stage.addChild(paintedSprite)
     app.stage.addChild(this.wiggleLayer)
-    app.stage.addChild(this.previewContainer)
+    app.stage.addChild(this.previewSprite)
 
     this.clearTexture()
 
@@ -112,7 +119,7 @@ export class PaintEngine {
     if (!this.currentStroke) return
     const stroke = this.currentStroke
     this.currentStroke = null
-    this.previewContainer.removeChildren()
+    this.clearPreview()
 
     if (stroke.points.length > 0) {
       this.strokes.push(stroke)
@@ -188,10 +195,18 @@ export class PaintEngine {
   }
 
   private updatePreview() {
-    this.previewContainer.removeChildren()
-    if (!this.currentStroke || this.currentStroke.brush === 'wobble') return
+    if (!this.currentStroke || this.currentStroke.brush === 'wobble') {
+      this.clearPreview()
+      return
+    }
     const brush = brushes[this.currentStroke.brush]
-    this.previewContainer.addChild(brush.render(this.currentStroke, this.textures))
+    const g = brush.render(this.currentStroke, this.textures)
+    this.app.renderer.render({ container: g, target: this.previewTexture, clear: true })
+    g.destroy({ children: true })
+  }
+
+  private clearPreview() {
+    this.app.renderer.render({ container: new Container(), target: this.previewTexture, clear: true })
   }
 
   private tickWiggle() {
