@@ -81,6 +81,32 @@ function granulatedStroke(
   return grain
 }
 
+/** Pigment-concentrates-at-the-boundary effect — as water evaporates, capillary action carries
+ * dissolved pigment outward, depositing more of it near the edge than in the middle. This is the
+ * defining visual trait of real watercolor, more so than granulation or bleed. Built as a ring: a
+ * darkened pass at the body's full width, with an inverse mask (a narrower "core" shape) punching
+ * out the center so only the band near the boundary shows. */
+function wetEdge(path: { x: number; y: number }[], width: number, color: string) {
+  const core = new Graphics()
+  tracePath(core, path)
+  core.stroke({ width: width * 0.82, color: 0xffffff, cap: 'round', join: 'round' })
+  // Not added to the display tree — same reason as granulatedStroke's mask above.
+
+  const edge = new Graphics()
+  tracePath(edge, path)
+  edge.stroke({ width, color, cap: 'round', join: 'round' })
+  edge.setMask({ mask: core, inverse: true })
+  edge.filters = [new AlphaFilter({ alpha: 0.85 })]
+
+  const destroy = edge.destroy.bind(edge)
+  edge.destroy = (options?: Parameters<typeof destroy>[0]) => {
+    core.destroy()
+    destroy(options)
+  }
+
+  return edge
+}
+
 export const watercolorBrush: Brush = {
   id: 'watercolor',
   label: 'Watercolor',
@@ -112,6 +138,9 @@ export const watercolorBrush: Brush = {
 
     // Granulated body: pigment-like tonal variation instead of a flat, uniform fill.
     container.addChild(granulatedStroke(path, stroke.size, stroke.color, 0.7, textures))
+
+    // Wet edge: darkened ring where pigment concentrates at the boundary.
+    container.addChild(wetEdge(path, stroke.size, stroke.color))
 
     // blendMode goes on the outer (unfiltered) container, not on halo/body directly: a filter
     // forces an isolated offscreen render, and applying 'multiply' to that isolated pass blends
