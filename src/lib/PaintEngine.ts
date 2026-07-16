@@ -1,6 +1,7 @@
-import { Application, Graphics, RenderTexture, Sprite } from 'pixi.js'
+import { Application, Container, Graphics, RenderTexture, Sprite } from 'pixi.js'
 import { DEFAULT_WIGGLE, type BrushId, type BrushTextures, type Stroke, type StrokePoint, type WiggleSettings } from './brush-types'
 import { brushes } from './brushes'
+import { drawWiggleInto } from './brushes/wobble'
 import { createSoftTexture, createRoughTexture } from './textures'
 
 const BACKGROUND_COLOR = 0xffffff
@@ -10,8 +11,18 @@ export class PaintEngine {
   readonly width: number
   readonly height: number
 
+  /** Round/watercolor strokes are baked in once and left alone — cheap, and they never change. */
   private paintedTexture: RenderTexture
   private textures: BrushTextures
+
+  /** Wiggly strokes keep rippling forever, so they stay as live display objects (one reused
+   * Graphics per stroke, cleared + redrawn in place every frame) instead of flattened pixels. */
+  private wiggleLayer = new Container()
+  private wiggleGraphics = new Map<string, Graphics>()
+
+  /** Live preview for the in-progress round/watercolor stroke only — wiggly strokes preview via
+   * wiggleLayer instead, since they're already drawn there whether committed or not. */
+  private previewContainer = new Container()
 
   private strokes: Stroke[] = []
   private redoStack: Stroke[] = []
@@ -34,15 +45,12 @@ export class PaintEngine {
 
     const paintedSprite = new Sprite(this.paintedTexture)
     app.stage.addChild(paintedSprite)
+    app.stage.addChild(this.wiggleLayer)
+    app.stage.addChild(this.previewContainer)
 
-    this.redraw()
+    this.clearTexture()
 
-    // Committed wiggly strokes keep animating forever, and the in-progress stroke needs live
-    // feedback — in both cases we redraw the whole picture from `strokes` every frame. Once
-    // nothing needs animating, this becomes a no-op and the canvas stays static (cheap).
-    app.ticker.add(() => {
-      if (this.isAnimating()) this.redraw()
-    })
+    app.ticker.add(() => this.tickWiggle())
   }
 
   static async create(canvas: HTMLCanvasElement, width: number, height: number): Promise<PaintEngine> {
@@ -90,25 +98,28 @@ export class PaintEngine {
       points: [{ x, y, pressure }],
       wiggle: this.brushId === 'wobble' ? { ...this.wiggle } : undefined,
     }
-    this.redraw()
+    this.updatePreview()
     this.emitHistory()
   }
 
   pointerMove(x: number, y: number, pressure: number) {
     if (!this.currentStroke) return
     this.appendPoint(this.currentStroke.points, { x, y, pressure })
-    this.redraw()
+    this.updatePreview()
   }
 
   pointerUp() {
     if (!this.currentStroke) return
     const stroke = this.currentStroke
     this.currentStroke = null
+    this.previewContainer.removeChildren()
 
     if (stroke.points.length > 0) {
       this.strokes.push(stroke)
+      // Wiggly strokes are already live in wiggleLayer (tickWiggle tracks `strokes` directly) —
+      // nothing to bake. Everything else gets flattened into the static texture once.
+      if (stroke.brush !== 'wobble') this.bakeStroke(stroke)
     }
-    this.redraw()
     this.emitHistory()
   }
 
@@ -116,7 +127,11 @@ export class PaintEngine {
     if (this.strokes.length === 0) return
     const stroke = this.strokes.pop()!
     this.redoStack.push(stroke)
-    this.redraw()
+    if (stroke.brush === 'wobble') {
+      this.removeWiggleGraphics(stroke.id)
+    } else {
+      this.rebuildBaked() // no way to "unbake" a single stroke from the flattened texture
+    }
     this.emitHistory()
   }
 
@@ -124,7 +139,7 @@ export class PaintEngine {
     if (this.redoStack.length === 0) return
     const stroke = this.redoStack.pop()!
     this.strokes.push(stroke)
-    this.redraw()
+    if (stroke.brush !== 'wobble') this.bakeStroke(stroke)
     this.emitHistory()
   }
 
@@ -132,12 +147,29 @@ export class PaintEngine {
     if (this.strokes.length === 0) return
     this.strokes = []
     this.redoStack = []
-    this.redraw()
+    this.clearTexture()
+    for (const [, g] of this.wiggleGraphics) {
+      this.wiggleLayer.removeChild(g)
+      g.destroy()
+    }
+    this.wiggleGraphics.clear()
     this.emitHistory()
   }
 
-  exportPNG(): Promise<string> {
-    return this.app.renderer.extract.base64(this.paintedTexture)
+  async exportPNG(): Promise<string> {
+    // The picture is split across a baked texture and a live wiggle layer — composite the
+    // whole stage into a throwaway texture so the export reflects both.
+    const composite = RenderTexture.create({
+      width: this.width,
+      height: this.height,
+      resolution: this.app.renderer.resolution,
+    })
+    this.app.renderer.render({ container: this.app.stage, target: composite })
+    try {
+      return await this.app.renderer.extract.base64(composite)
+    } finally {
+      composite.destroy(true)
+    }
   }
 
   destroy() {
@@ -155,24 +187,75 @@ export class PaintEngine {
     points.push(point)
   }
 
-  private isAnimating(): boolean {
-    return this.currentStroke !== null || this.strokes.some((s) => s.brush === 'wobble')
+  private updatePreview() {
+    this.previewContainer.removeChildren()
+    if (!this.currentStroke || this.currentStroke.brush === 'wobble') return
+    const brush = brushes[this.currentStroke.brush]
+    this.previewContainer.addChild(brush.render(this.currentStroke, this.textures))
   }
 
-  private redraw() {
+  private tickWiggle() {
+    const hasLiveWobble = this.currentStroke?.brush === 'wobble'
+    if (!hasLiveWobble && this.wiggleGraphics.size === 0 && !this.strokes.some((s) => s.brush === 'wobble')) {
+      return // nothing animating — stay idle
+    }
+
     const time = performance.now() / 1000
+    const activeIds = new Set<string>()
+
+    for (const stroke of this.strokes) {
+      if (stroke.brush !== 'wobble') continue
+      activeIds.add(stroke.id)
+      this.updateWiggleGraphics(stroke, time)
+    }
+    if (hasLiveWobble) {
+      activeIds.add(this.currentStroke!.id)
+      this.updateWiggleGraphics(this.currentStroke!, time)
+    }
+
+    for (const [id, g] of this.wiggleGraphics) {
+      if (activeIds.has(id)) continue
+      this.wiggleLayer.removeChild(g)
+      g.destroy()
+      this.wiggleGraphics.delete(id)
+    }
+  }
+
+  private updateWiggleGraphics(stroke: Stroke, time: number) {
+    let g = this.wiggleGraphics.get(stroke.id)
+    if (!g) {
+      g = new Graphics()
+      this.wiggleGraphics.set(stroke.id, g)
+      this.wiggleLayer.addChild(g)
+    }
+    drawWiggleInto(g, stroke, time)
+  }
+
+  private removeWiggleGraphics(id: string) {
+    const g = this.wiggleGraphics.get(id)
+    if (!g) return
+    this.wiggleLayer.removeChild(g)
+    g.destroy()
+    this.wiggleGraphics.delete(id)
+  }
+
+  private bakeStroke(stroke: Stroke) {
+    const brush = brushes[stroke.brush]
+    const g = brush.render(stroke, this.textures)
+    this.app.renderer.render({ container: g, target: this.paintedTexture, clear: false })
+    g.destroy({ children: true })
+  }
+
+  private clearTexture() {
     const bg = new Graphics().rect(0, 0, this.width, this.height).fill({ color: BACKGROUND_COLOR })
     this.app.renderer.render({ container: bg, target: this.paintedTexture, clear: true })
     bg.destroy()
-
-    for (const stroke of this.strokes) this.paint(stroke, time)
-    if (this.currentStroke) this.paint(this.currentStroke, time)
   }
 
-  private paint(stroke: Stroke, time: number) {
-    const brush = brushes[stroke.brush]
-    const g = brush.render(stroke, this.textures, brush.id === 'wobble' ? time : undefined)
-    this.app.renderer.render({ container: g, target: this.paintedTexture, clear: false })
-    g.destroy({ children: true })
+  private rebuildBaked() {
+    this.clearTexture()
+    for (const stroke of this.strokes) {
+      if (stroke.brush !== 'wobble') this.bakeStroke(stroke)
+    }
   }
 }

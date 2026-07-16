@@ -42,26 +42,33 @@ function wavyPath(stroke: Stroke, time?: number) {
   })
 }
 
+/** Draws into an existing Graphics (clear + redraw) instead of allocating a new one. Wiggly
+ * strokes keep animating forever once drawn, so their per-frame redraw reuses one Graphics per
+ * stroke rather than creating/destroying one 60 times a second indefinitely. */
+export function drawWiggleInto(g: Graphics, stroke: Stroke, time?: number) {
+  g.clear()
+  if (stroke.points.length === 0) return
+
+  if (stroke.points.length === 1) {
+    const [p] = stroke.points
+    g.circle(p.x, p.y, stroke.size / 2).fill({ color: stroke.color })
+    return
+  }
+
+  const path = wavyPath(stroke, time)
+  if (path.length < 2) return
+
+  g.moveTo(path[0].x, path[0].y)
+  for (let i = 1; i < path.length; i++) g.lineTo(path[i].x, path[i].y)
+  g.stroke({ width: stroke.size, color: stroke.color, cap: 'round', join: 'round' })
+}
+
 export const wobbleBrush: Brush = {
   id: 'wobble',
   label: 'Wiggly',
   render(stroke, _textures, time) {
     const g = new Graphics()
-    if (stroke.points.length === 0) return g
-
-    if (stroke.points.length === 1) {
-      const [p] = stroke.points
-      g.circle(p.x, p.y, stroke.size / 2).fill({ color: stroke.color })
-      return g
-    }
-
-    const path = wavyPath(stroke, time)
-    if (path.length < 2) return g
-
-    g.moveTo(path[0].x, path[0].y)
-    for (let i = 1; i < path.length; i++) g.lineTo(path[i].x, path[i].y)
-    g.stroke({ width: stroke.size, color: stroke.color, cap: 'round', join: 'round' })
-
+    drawWiggleInto(g, stroke, time)
     return g
   },
 }
