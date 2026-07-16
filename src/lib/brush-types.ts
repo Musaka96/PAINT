@@ -40,6 +40,7 @@ export interface Stroke {
 export interface BrushTextures {
   soft: Texture
   rough: Texture
+  grain: Texture
 }
 
 export interface Brush {

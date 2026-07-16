@@ -2,7 +2,7 @@ import { Application, Container, Graphics, RenderTexture, Sprite } from 'pixi.js
 import { DEFAULT_WIGGLE, type BrushId, type BrushTextures, type Stroke, type StrokePoint, type WiggleSettings } from './brush-types'
 import { brushes } from './brushes'
 import { drawWiggleInto } from './brushes/wobble'
-import { createSoftTexture, createRoughTexture } from './textures'
+import { createSoftTexture, createRoughTexture, createGrainTexture } from './textures'
 
 const BACKGROUND_COLOR = 0xffffff
 
@@ -47,7 +47,7 @@ export class PaintEngine {
 
     this.paintedTexture = RenderTexture.create({ width, height, resolution: app.renderer.resolution })
     this.previewTexture = RenderTexture.create({ width, height, resolution: app.renderer.resolution })
-    this.textures = { soft: createSoftTexture(), rough: createRoughTexture() }
+    this.textures = { soft: createSoftTexture(), rough: createRoughTexture(), grain: createGrainTexture() }
 
     const paintedSprite = new Sprite(this.paintedTexture)
     this.previewSprite = new Sprite(this.previewTexture)

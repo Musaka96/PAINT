@@ -49,3 +49,36 @@ export function createRoughTexture(size = 160): Texture {
   ctx.putImageData(img, 0, 0)
   return Texture.from(canvas)
 }
+
+/** A tileable mottled-tone pattern — tinted and masked to a stroke's shape, this gives watercolor
+ * its granulation (pigment settling unevenly on paper) instead of a flat, uniform fill. */
+export function createGrainTexture(size = 320): Texture {
+  const canvas = makeCanvas(size)
+  const ctx = canvas.getContext('2d')!
+  ctx.fillStyle = '#ffffff'
+  ctx.fillRect(0, 0, size, size)
+
+  const blobCount = 260
+  for (let i = 0; i < blobCount; i++) {
+    const x = Math.random() * size
+    const y = Math.random() * size
+    const r = 6 + Math.random() * 22
+    const dark = Math.random() < 0.55
+    const shade = dark ? 0 : 255
+    const alpha = 0.04 + Math.random() * 0.14
+    const gradient = ctx.createRadialGradient(x, y, 0, x, y, r)
+    gradient.addColorStop(0, `rgba(${shade},${shade},${shade},${alpha})`)
+    gradient.addColorStop(1, `rgba(${shade},${shade},${shade},0)`)
+    ctx.fillStyle = gradient
+    // Wrap blobs across all four edges so the texture tiles without a visible seam.
+    for (const ox of [0, -size, size]) {
+      for (const oy of [0, -size, size]) {
+        ctx.beginPath()
+        ctx.arc(x + ox, y + oy, r, 0, Math.PI * 2)
+        ctx.fill()
+      }
+    }
+  }
+
+  return Texture.from(canvas)
+}
