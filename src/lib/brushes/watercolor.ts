@@ -1,15 +1,18 @@
 import { AlphaFilter, Container, Graphics } from 'pixi.js'
-import { getStroke } from 'perfect-freehand'
+import { getStrokePoints } from 'perfect-freehand'
 import type { Brush, Stroke } from '../brush-types'
 
-function outline(stroke: Stroke, size: number) {
-  const input = stroke.points.map((p) => [p.x, p.y, p.pressure] as [number, number, number])
-  return getStroke(input, {
-    size,
-    thinning: 0.5,
-    smoothing: 0.6,
-    streamline: 0.5,
-  })
+function centerline(stroke: Stroke) {
+  const points = getStrokePoints(
+    stroke.points.map((p) => [p.x, p.y, p.pressure]),
+    { size: stroke.size, smoothing: 0.6, streamline: 0.5 },
+  )
+  return points.map(({ point: [x, y] }) => ({ x, y }))
+}
+
+function tracePath(g: Graphics, path: { x: number; y: number }[]) {
+  g.moveTo(path[0].x, path[0].y)
+  for (let i = 1; i < path.length; i++) g.lineTo(path[i].x, path[i].y)
 }
 
 export const watercolorBrush: Brush = {
@@ -27,28 +30,31 @@ export const watercolorBrush: Brush = {
       return container
     }
 
-    // Soft bleed halo: a wider, fainter pass of the same outline behind the body, no per-dot
+    // Stroked (constant-width band along the centerline), not a filled outline polygon: for a
+    // closed loop, getStroke()'s offset-curve outline can self-intersect and the "hole" collapses,
+    // filling the inside solid — reproducible even for loops well larger than the brush width,
+    // and the halo's wider pass made it worse. Graphics.stroke() just draws a band around the
+    // path and can't collapse a hole this way.
+    const path = centerline(stroke)
+    if (path.length < 2) return container
+
+    // Soft bleed halo: a wider, fainter pass of the same path behind the body, no per-dot
     // stamping so a single stroke never darkens itself — only separate strokes overlapping
-    // will (via multiply). This used a BlurFilter before, but blur padding is computed from the
-    // stroke's current bounding box — while actively drawing, that box changes every frame,
-    // making the filter's internal texture keep resizing and visibly pop/jitter. A wider outline
-    // avoids GPU filters (aside from AlphaFilter) entirely.
-    const bodyPoints = outline(stroke, stroke.size)
-    if (bodyPoints.length < 3) return container
-    const haloPoints = outline(stroke, stroke.size * 1.8)
+    // will (via multiply).
+    const halo = new Graphics()
+    tracePath(halo, path)
+    halo.stroke({ width: stroke.size * 1.8, color: stroke.color, cap: 'round', join: 'round' })
+    // Fill fully opaque and apply opacity via AlphaFilter (not stroke alpha): a stroke that
+    // doubles back on itself covers some pixels twice, and a plain translucent stroke blends
+    // per overlapping segment, darkening at the crossing. AlphaFilter forces an isolated
+    // offscreen render first, so opacity is applied once as a single composite.
+    halo.filters = [new AlphaFilter({ alpha: 0.16 })]
+    container.addChild(halo)
 
-    // Fill fully opaque and apply opacity via AlphaFilter (not fill alpha): a stroke that
-    // doubles back on itself produces a self-intersecting polygon, and a plain translucent
-    // fill blends per overlapping triangle, darkening at the crossing. AlphaFilter forces an
-    // isolated offscreen render first, so opacity is applied once as a single composite.
-    if (haloPoints.length >= 3) {
-      const halo = new Graphics().poly(haloPoints.map(([x, y]) => ({ x, y }))).fill({ color: stroke.color })
-      halo.filters = [new AlphaFilter({ alpha: 0.16 })]
-      container.addChild(halo)
-    }
-
-    // Solid body — one continuous fill, full coverage like a real brush.
-    const body = new Graphics().poly(bodyPoints.map(([x, y]) => ({ x, y }))).fill({ color: stroke.color })
+    // Solid body — one continuous stroke, full coverage like a real brush.
+    const body = new Graphics()
+    tracePath(body, path)
+    body.stroke({ width: stroke.size, color: stroke.color, cap: 'round', join: 'round' })
     body.filters = [new AlphaFilter({ alpha: 0.65 })]
     container.addChild(body)
 
