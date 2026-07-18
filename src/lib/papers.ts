@@ -23,10 +23,13 @@ export const PAPER_TILE_SIZE = 512
 interface PaperRecipe {
   /** Base sheet color (warm near-whites — pure white reads as "no paper at all"). */
   base: string
-  /** Soft tooth blobs: how many, how big, and how far luminance may deviate. */
+  /** Soft tooth blobs: how many, how big, and how far luminance may deviate. Kept small and
+   * dense — large sparse blobs read as polka dots, not paper. */
   blobCount: number
   blobRadius: [number, number]
   blobAlpha: number
+  /** Per-pixel grain amplitude (0-255 luminance units) — the sheet's fine tooth. */
+  noise: number
   /** Short stray fibers pressed into the sheet. */
   fiberCount: number
   fiberAlpha: number
@@ -37,35 +40,38 @@ interface PaperRecipe {
 const RECIPES: Record<PaperId, PaperRecipe> = {
   smooth: {
     base: '#fbf9f5',
-    blobCount: 140,
-    blobRadius: [8, 26],
-    blobAlpha: 0.025,
-    fiberCount: 60,
+    blobCount: 320,
+    blobRadius: [2, 7],
+    blobAlpha: 0.02,
+    noise: 1.5,
+    fiberCount: 80,
     fiberAlpha: 0.02,
     seed: 101,
   },
   coldpress: {
     base: '#f9f6f0',
-    blobCount: 320,
-    blobRadius: [5, 20],
-    blobAlpha: 0.055,
-    fiberCount: 160,
+    blobCount: 900,
+    blobRadius: [2, 9],
+    blobAlpha: 0.04,
+    noise: 3,
+    fiberCount: 220,
     fiberAlpha: 0.035,
     seed: 202,
   },
   rough: {
     base: '#f7f3ea',
-    blobCount: 420,
-    blobRadius: [6, 30],
-    blobAlpha: 0.085,
-    fiberCount: 240,
+    blobCount: 1200,
+    blobRadius: [3, 13],
+    blobAlpha: 0.06,
+    noise: 5,
+    fiberCount: 320,
     fiberAlpha: 0.05,
     seed: 303,
   },
 }
 
 /** Draws a shape at all nine wrap offsets so the tile has no visible seam. */
-function wrapped(ctx: CanvasRenderingContext2D, size: number, draw: (ox: number, oy: number) => void) {
+function wrapped(size: number, draw: (ox: number, oy: number) => void) {
   for (const ox of [0, -size, size]) {
     for (const oy of [0, -size, size]) {
       draw(ox, oy)
@@ -91,7 +97,7 @@ function createPaperTexture(recipe: PaperRecipe, size = PAPER_TILE_SIZE): Textur
     const dark = rand() < 0.55
     const shade = dark ? 0 : 255
     const alpha = recipe.blobAlpha * (0.4 + rand() * 0.6)
-    wrapped(ctx, size, (ox, oy) => {
+    wrapped(size, (ox, oy) => {
       const gradient = ctx.createRadialGradient(x + ox, y + oy, 0, x + ox, y + oy, r)
       gradient.addColorStop(0, `rgba(${shade},${shade},${shade},${alpha})`)
       gradient.addColorStop(1, `rgba(${shade},${shade},${shade},0)`)
@@ -115,12 +121,25 @@ function createPaperTexture(recipe: PaperRecipe, size = PAPER_TILE_SIZE): Textur
     const shade = dark ? 40 : 255
     ctx.strokeStyle = `rgba(${shade},${shade},${shade},${recipe.fiberAlpha * (0.4 + rand() * 0.6)})`
     ctx.lineWidth = 0.6 + rand() * 0.8
-    wrapped(ctx, size, (ox, oy) => {
+    wrapped(size, (ox, oy) => {
       ctx.beginPath()
       ctx.moveTo(x + ox - dx / 2, y + oy - dy / 2)
       ctx.lineTo(x + ox + dx / 2, y + oy + dy / 2)
       ctx.stroke()
     })
+  }
+
+  // Fine tooth: per-pixel grain so the sheet has texture between the blobs.
+  if (recipe.noise > 0) {
+    const img = ctx.getImageData(0, 0, size, size)
+    const data = img.data
+    for (let i = 0; i < data.length; i += 4) {
+      const n = (rand() - 0.5) * 2 * recipe.noise
+      data[i] = Math.max(0, Math.min(255, data[i] + n))
+      data[i + 1] = Math.max(0, Math.min(255, data[i + 1] + n))
+      data[i + 2] = Math.max(0, Math.min(255, data[i + 2] + n))
+    }
+    ctx.putImageData(img, 0, 0)
   }
 
   return Texture.from(canvas)

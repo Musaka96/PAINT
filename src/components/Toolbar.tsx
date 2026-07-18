@@ -1,4 +1,4 @@
-import { Circle, Download, Droplets, Redo2, Sparkles, Trash2, Undo2 } from 'lucide-react'
+import { Circle, Download, Droplet, Droplets, Redo2, Sparkles, Trash2, Undo2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Slider } from '@/components/ui/slider'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
@@ -13,7 +13,8 @@ import { PAPERS, type PaperId } from '@/lib/papers'
 const BRUSH_OPTIONS: { id: BrushId; label: string; icon: typeof Circle }[] = [
   { id: 'round', label: 'Round', icon: Circle },
   { id: 'wobble', label: 'Wiggly', icon: Sparkles },
-  { id: 'watercolor', label: 'Watercolor', icon: Droplets },
+  { id: 'wetsharp', label: 'Wet Sharp', icon: Droplet },
+  { id: 'wetround', label: 'Wet Round', icon: Droplets },
 ]
 
 const WIGGLE_PATTERNS: { id: WigglePattern; label: string }[] = [

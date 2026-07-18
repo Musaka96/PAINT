@@ -6,7 +6,11 @@ export interface StrokePoint {
   pressure: number
 }
 
-export type BrushId = 'round' | 'wobble' | 'watercolor'
+export type BrushId = 'round' | 'wobble' | 'wetsharp' | 'wetround'
+
+/** Brushes with a classic render-a-Container implementation. Wet brushes ('wetsharp'/'wetround')
+ * instead go through the engine's dab-stamping + wash pipeline, which needs renderer access. */
+export type ClassicBrushId = 'round' | 'wobble'
 
 export type WigglePattern = 'sine' | 'zigzag' | 'square'
 
@@ -44,7 +48,7 @@ export interface BrushTextures {
 }
 
 export interface Brush {
-  id: BrushId
+  id: ClassicBrushId
   label: string
   /** `time` (seconds) is only passed for the live in-progress preview, so brushes can animate;
    * it's omitted when baking the final, settled stroke into the canvas. */

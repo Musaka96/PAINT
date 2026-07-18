@@ -10,7 +10,7 @@ const CANVAS_HEIGHT = 600
 
 function App() {
   const canvasHandleRef = useRef<PaintCanvasHandle>(null)
-  const [brush, setBrush] = useState<BrushId>('watercolor')
+  const [brush, setBrush] = useState<BrushId>('wetround')
   const [color, setColor] = useState('#1e1e2e')
   const [size, setSize] = useState(18)
   const [wiggle, setWiggle] = useState<WiggleSettings>(DEFAULT_WIGGLE)

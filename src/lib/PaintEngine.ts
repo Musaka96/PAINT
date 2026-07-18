@@ -1,11 +1,21 @@
 import { Application, Container, Graphics, RenderTexture, Sprite, TilingSprite, type Texture } from 'pixi.js'
-import { DEFAULT_WIGGLE, type BrushId, type BrushTextures, type Stroke, type StrokePoint, type WiggleSettings } from './brush-types'
+import { DEFAULT_WIGGLE, type BrushId, type BrushTextures, type ClassicBrushId, type Stroke, type StrokePoint, type WiggleSettings } from './brush-types'
 import { brushes } from './brushes'
 import { drawWiggleInto } from './brushes/wobble'
 import { createSoftTexture, createRoughTexture, createGrainTexture } from './textures'
-import { createPaperTextures, DEFAULT_PAPER, type PaperId } from './papers'
+import { createPaperTextures, DEFAULT_PAPER, PAPER_TILE_SIZE, type PaperId } from './papers'
+import { createWetTips, type WetTips } from './tips'
+import { computeDabs, stampDabs } from './stamping'
+import { WET_BRUSHES, isWetBrush } from './wet-brushes'
+import { WashFilter } from './wash-filter'
+import { hashSeed } from './random'
 
 const BACKGROUND_COLOR = 0xffffff
+
+/** During a live wet stroke, the last stretch of the path is left un-stamped and re-rendered
+ * fresh each frame instead: perfect-freehand's streamline smoothing keeps shifting the most
+ * recent points, so dabs stamped there too early would freeze in soon-to-be-wrong positions. */
+const WET_TAIL_PX = 64
 
 export class PaintEngine {
   readonly app: Application
@@ -36,6 +46,15 @@ export class PaintEngine {
   private previewTexture: RenderTexture
   private previewSprite: Sprite
 
+  /** Wet-brush pipeline: dabs are stamped into a shared full-canvas silhouette texture, and the
+   * wash filter turns that silhouette into pigment (wet edge, granulation, flat opacity). One
+   * filter instance is reused for every wet render; its uniforms are set per stroke. */
+  private silhouetteTexture: RenderTexture
+  private wetTips: WetTips
+  private washFilter: WashFilter
+  /** How many dabs of the in-progress wet stroke are already stamped into silhouetteTexture. */
+  private wetStampedCount = 0
+
   private strokes: Stroke[] = []
   private redoStack: Stroke[] = []
   private currentStroke: Stroke | null = null
@@ -58,6 +77,10 @@ export class PaintEngine {
 
     this.paperTextures = createPaperTextures()
     this.paperSprite = new TilingSprite({ texture: this.paperTextures[this.paperId], width, height })
+
+    this.silhouetteTexture = RenderTexture.create({ width, height, resolution: app.renderer.resolution })
+    this.wetTips = createWetTips()
+    this.washFilter = new WashFilter(this.paperTextures[this.paperId], PAPER_TILE_SIZE)
 
     const paintedSprite = new Sprite(this.paintedTexture)
     // The painted layer starts as flat white (multiply-neutral) and strokes multiply into it, so
@@ -114,6 +137,9 @@ export class PaintEngine {
     if (id === this.paperId) return
     this.paperId = id
     this.paperSprite.texture = this.paperTextures[id]
+    // Wet-brush granulation samples the paper — rebake so existing strokes settle into the new sheet.
+    this.washFilter.setPaper(this.paperTextures[id])
+    this.rebuildBaked()
   }
 
   pointerDown(x: number, y: number, pressure: number) {
@@ -125,6 +151,10 @@ export class PaintEngine {
       size: this.size,
       points: [{ x, y, pressure }],
       wiggle: this.brushId === 'wobble' ? { ...this.wiggle } : undefined,
+    }
+    if (isWetBrush(this.brushId)) {
+      this.wetStampedCount = 0
+      this.app.renderer.render({ container: new Container(), target: this.silhouetteTexture, clear: true })
     }
     this.updatePreview()
     this.emitHistory()
@@ -201,6 +231,8 @@ export class PaintEngine {
   }
 
   destroy() {
+    // Not referenced by any stage object, so app.destroy won't reach it.
+    this.silhouetteTexture.destroy(true)
     // removeView: false — React owns the <canvas> DOM node, Pixi should only clean up its internal resources.
     this.app.destroy(false, { children: true, texture: true })
   }
@@ -220,10 +252,45 @@ export class PaintEngine {
       this.clearPreview()
       return
     }
+    if (isWetBrush(this.currentStroke.brush)) {
+      this.updateWetPreview(this.currentStroke)
+      return
+    }
     const brush = brushes[this.currentStroke.brush]
     const g = brush.render(this.currentStroke, this.textures)
     this.app.renderer.render({ container: g, target: this.previewTexture, clear: true })
     g.destroy({ children: true })
+  }
+
+  /** Incremental wet preview: dabs that are far enough behind the pointer get stamped into the
+   * silhouette texture once and never touched again; only the still-settling tail is restamped
+   * per frame. The wash pass then runs over silhouette + tail together. Rendered with normal
+   * blending (the preview sprite composites it over the canvas); the true multiply-over-canvas
+   * happens at bake time, and since paint sits on near-white paper the two are visually
+   * near-identical. */
+  private updateWetPreview(stroke: Stroke) {
+    const def = WET_BRUSHES[stroke.brush as keyof typeof WET_BRUSHES]
+    const spacing = Math.max(2, stroke.size * def.spacingFactor)
+    const { dabs, totalLength } = computeDabs(stroke.points, stroke.size, spacing, def.jitter, hashSeed(stroke.id))
+    const settledLength = totalLength - WET_TAIL_PX
+
+    const fresh = dabs.filter((d) => d.index >= this.wetStampedCount && d.arcLength <= settledLength)
+    if (fresh.length > 0) {
+      const batch = new Container()
+      stampDabs(batch, fresh, this.wetTips[def.tip], stroke.size)
+      this.app.renderer.render({ container: batch, target: this.silhouetteTexture, clear: false })
+      batch.destroy({ children: true })
+      this.wetStampedCount = fresh[fresh.length - 1].index + 1
+    }
+
+    const washInput = new Container()
+    washInput.addChild(new Sprite(this.silhouetteTexture))
+    stampDabs(washInput, dabs.filter((d) => d.index >= this.wetStampedCount), this.wetTips[def.tip], stroke.size)
+    this.washFilter.update({ color: stroke.color, ...def.wash })
+    washInput.filters = [this.washFilter]
+    this.app.renderer.render({ container: washInput, target: this.previewTexture, clear: true })
+    washInput.filters = [] // detach before destroy — the filter is shared and reused
+    washInput.destroy({ children: true })
   }
 
   private clearPreview() {
@@ -276,10 +343,43 @@ export class PaintEngine {
   }
 
   private bakeStroke(stroke: Stroke) {
-    const brush = brushes[stroke.brush]
+    if (isWetBrush(stroke.brush)) {
+      this.bakeWetStroke(stroke)
+      return
+    }
+    const brush = brushes[stroke.brush as ClassicBrushId]
     const g = brush.render(stroke, this.textures)
     this.app.renderer.render({ container: g, target: this.paintedTexture, clear: false })
     g.destroy({ children: true })
+  }
+
+  /** Full, from-scratch bake of a wet stroke — all dabs restamped from the stroke's final points,
+   * ignoring whatever the incremental preview left in the silhouette texture. That keeps the
+   * committed pixels a pure function of the stroke data, so undo-rebakes and redo reproduce the
+   * stroke exactly. (The live preview can differ by a hair at the tail; that settle-on-release is
+   * inherent to streamline smoothing.) */
+  private bakeWetStroke(stroke: Stroke) {
+    const def = WET_BRUSHES[stroke.brush as keyof typeof WET_BRUSHES]
+    const spacing = Math.max(2, stroke.size * def.spacingFactor)
+    const { dabs } = computeDabs(stroke.points, stroke.size, spacing, def.jitter, hashSeed(stroke.id))
+
+    const batch = new Container()
+    stampDabs(batch, dabs, this.wetTips[def.tip], stroke.size)
+    this.app.renderer.render({ container: batch, target: this.silhouetteTexture, clear: true })
+    batch.destroy({ children: true })
+
+    const washInput = new Container()
+    washInput.addChild(new Sprite(this.silhouetteTexture))
+    this.washFilter.update({ color: stroke.color, ...def.wash })
+    washInput.filters = [this.washFilter]
+    // blendMode goes on an unfiltered wrapper (established gotcha: multiply directly on a
+    // filtered node composites against the filter's transparent backdrop and crushes color).
+    const wrapper = new Container()
+    wrapper.addChild(washInput)
+    wrapper.blendMode = 'multiply'
+    this.app.renderer.render({ container: wrapper, target: this.paintedTexture, clear: false })
+    washInput.filters = []
+    wrapper.destroy({ children: true })
   }
 
   private clearTexture() {
