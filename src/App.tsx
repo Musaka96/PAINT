@@ -3,6 +3,7 @@ import { PaintCanvas, type PaintCanvasHandle } from '@/components/PaintCanvas'
 import { Toolbar } from '@/components/Toolbar'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { DEFAULT_WIGGLE, type BrushId, type WiggleSettings } from '@/lib/brush-types'
+import { DEFAULT_PAPER, type PaperId } from '@/lib/papers'
 
 const CANVAS_WIDTH = 900
 const CANVAS_HEIGHT = 600
@@ -13,6 +14,7 @@ function App() {
   const [color, setColor] = useState('#1e1e2e')
   const [size, setSize] = useState(18)
   const [wiggle, setWiggle] = useState<WiggleSettings>(DEFAULT_WIGGLE)
+  const [paper, setPaper] = useState<PaperId>(DEFAULT_PAPER)
   const [canUndo, setCanUndo] = useState(false)
   const [canRedo, setCanRedo] = useState(false)
 
@@ -43,6 +45,8 @@ function App() {
           onSizeChange={setSize}
           wiggle={wiggle}
           onWiggleChange={handleWiggleChange}
+          paper={paper}
+          onPaperChange={setPaper}
           canUndo={canUndo}
           canRedo={canRedo}
           onUndo={() => canvasHandleRef.current?.undo()}
@@ -57,6 +61,7 @@ function App() {
           color={color}
           size={size}
           wiggle={wiggle}
+          paper={paper}
           width={CANVAS_WIDTH}
           height={CANVAS_HEIGHT}
           onHistoryChange={(undo, redo) => {

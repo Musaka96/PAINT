@@ -8,6 +8,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import type { BrushId, WigglePattern, WiggleSettings } from '@/lib/brush-types'
+import { PAPERS, type PaperId } from '@/lib/papers'
 
 const BRUSH_OPTIONS: { id: BrushId; label: string; icon: typeof Circle }[] = [
   { id: 'round', label: 'Round', icon: Circle },
@@ -32,6 +33,8 @@ interface ToolbarProps {
   onSizeChange: (size: number) => void
   wiggle: WiggleSettings
   onWiggleChange: (settings: Partial<WiggleSettings>) => void
+  paper: PaperId
+  onPaperChange: (paper: PaperId) => void
   canUndo: boolean
   canRedo: boolean
   onUndo: () => void
@@ -49,6 +52,8 @@ export function Toolbar({
   onSizeChange,
   wiggle,
   onWiggleChange,
+  paper,
+  onPaperChange,
   canUndo,
   canRedo,
   onUndo,
@@ -145,6 +150,22 @@ export function Toolbar({
             </TooltipTrigger>
             <TooltipContent>Clear canvas</TooltipContent>
           </Tooltip>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">Paper</span>
+          <ToggleGroup
+            type="single"
+            value={paper}
+            onValueChange={(value) => value && onPaperChange(value as PaperId)}
+            className="gap-1"
+          >
+            {PAPERS.map(({ id, label }) => (
+              <ToggleGroupItem key={id} value={id} className="px-3 text-xs">
+                {label}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
         </div>
 
         <div className="ml-auto">

@@ -1,8 +1,9 @@
-import { Application, Container, Graphics, RenderTexture, Sprite } from 'pixi.js'
+import { Application, Container, Graphics, RenderTexture, Sprite, TilingSprite, type Texture } from 'pixi.js'
 import { DEFAULT_WIGGLE, type BrushId, type BrushTextures, type Stroke, type StrokePoint, type WiggleSettings } from './brush-types'
 import { brushes } from './brushes'
 import { drawWiggleInto } from './brushes/wobble'
 import { createSoftTexture, createRoughTexture, createGrainTexture } from './textures'
+import { createPaperTextures, DEFAULT_PAPER, type PaperId } from './papers'
 
 const BACKGROUND_COLOR = 0xffffff
 
@@ -14,6 +15,12 @@ export class PaintEngine {
   /** Round/watercolor strokes are baked in once and left alone — cheap, and they never change. */
   private paintedTexture: RenderTexture
   private textures: BrushTextures
+
+  /** Bottom layer: the sheet of paper. Paint layers multiply over it, so its texture shows
+   * through everywhere there's pigment — the paper is part of the picture, not just a backdrop. */
+  private paperSprite: TilingSprite
+  private paperTextures: Record<PaperId, Texture>
+  private paperId: PaperId = DEFAULT_PAPER
 
   /** Wiggly strokes keep rippling forever, so they stay as live display objects (one reused
    * Graphics per stroke, cleared + redrawn in place every frame) instead of flattened pixels. */
@@ -49,8 +56,16 @@ export class PaintEngine {
     this.previewTexture = RenderTexture.create({ width, height, resolution: app.renderer.resolution })
     this.textures = { soft: createSoftTexture(), rough: createRoughTexture(), grain: createGrainTexture() }
 
+    this.paperTextures = createPaperTextures()
+    this.paperSprite = new TilingSprite({ texture: this.paperTextures[this.paperId], width, height })
+
     const paintedSprite = new Sprite(this.paintedTexture)
+    // The painted layer starts as flat white (multiply-neutral) and strokes multiply into it, so
+    // multiplying the whole layer over the paper leaves bare paper untouched and lets its grain
+    // show through the pigment — the same way real washes reveal the sheet's tooth.
+    paintedSprite.blendMode = 'multiply'
     this.previewSprite = new Sprite(this.previewTexture)
+    app.stage.addChild(this.paperSprite)
     app.stage.addChild(paintedSprite)
     app.stage.addChild(this.wiggleLayer)
     app.stage.addChild(this.previewSprite)
@@ -93,6 +108,12 @@ export class PaintEngine {
 
   setWiggle(settings: Partial<WiggleSettings>) {
     this.wiggle = { ...this.wiggle, ...settings }
+  }
+
+  setPaper(id: PaperId) {
+    if (id === this.paperId) return
+    this.paperId = id
+    this.paperSprite.texture = this.paperTextures[id]
   }
 
   pointerDown(x: number, y: number, pressure: number) {
