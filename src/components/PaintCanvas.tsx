@@ -63,7 +63,6 @@ export const PaintCanvas = forwardRef<PaintCanvasHandle, PaintCanvasProps>(funct
       engine.setWiggle(wiggle)
       engine.setPaper(paper)
       engine.setHistoryListener(onHistoryChange)
-      if (import.meta.env.DEV) (window as unknown as { __engine?: PaintEngine }).__engine = engine
     })
 
     return () => {
@@ -111,6 +110,9 @@ export const PaintCanvas = forwardRef<PaintCanvasHandle, PaintCanvasProps>(funct
     }
 
     const handleDown = (e: PointerEvent) => {
+      // A second pointer mid-stroke (palm touch, second finger) must not restart the stroke —
+      // that would discard the in-progress points and clear the wet silhouette.
+      if (drawingRef.current) return
       canvas.setPointerCapture(e.pointerId)
       drawingRef.current = true
       const { x, y, pressure } = toLocal(e)

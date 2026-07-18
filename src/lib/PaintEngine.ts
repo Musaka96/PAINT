@@ -58,6 +58,8 @@ export class PaintEngine {
   private strokes: Stroke[] = []
   private redoStack: Stroke[] = []
   private currentStroke: Stroke | null = null
+  /** Set on pointerMove, consumed once per ticker frame — coalesces preview renders. */
+  private previewDirty = false
 
   private brushId: BrushId = 'round'
   private color = '#1e1e2e'
@@ -95,7 +97,13 @@ export class PaintEngine {
 
     this.clearTexture()
 
-    app.ticker.add(() => this.tickWiggle())
+    app.ticker.add(() => {
+      if (this.previewDirty) {
+        this.previewDirty = false
+        if (this.currentStroke) this.updatePreview()
+      }
+      this.tickWiggle()
+    })
   }
 
   static async create(canvas: HTMLCanvasElement, width: number, height: number): Promise<PaintEngine> {
@@ -156,6 +164,12 @@ export class PaintEngine {
       this.wetStampedCount = 0
       this.app.renderer.render({ container: new Container(), target: this.silhouetteTexture, clear: true })
     }
+    // Wet strokes bake with multiply, so the live preview must composite the same way —
+    // otherwise a glaze dragged across existing paint shows as an opaque overlay while the
+    // pointer is down and visibly snaps darker on release. Round strokes bake with normal
+    // blending, so their preview stays normal. (Transparent preview pixels are no-ops under
+    // both modes.)
+    this.previewSprite.blendMode = isWetBrush(this.brushId) ? 'multiply' : 'normal'
     this.updatePreview()
     this.emitHistory()
   }
@@ -163,7 +177,10 @@ export class PaintEngine {
   pointerMove(x: number, y: number, pressure: number) {
     if (!this.currentStroke) return
     this.appendPoint(this.currentStroke.points, { x, y, pressure })
-    this.updatePreview()
+    // Don't render here: pointer events can outrun the display (120-240Hz pens deliver several
+    // moves per vsync) and every preview render but the last per frame is discarded work. The
+    // ticker picks the flag up once per frame.
+    this.previewDirty = true
   }
 
   pointerUp() {
@@ -231,8 +248,16 @@ export class PaintEngine {
   }
 
   destroy() {
-    // Not referenced by any stage object, so app.destroy won't reach it.
+    // Resources app.destroy can't reach: not referenced by any stage object (or, for the
+    // paper textures, only the active one is).
     this.silhouetteTexture.destroy(true)
+    this.washFilter.destroy()
+    this.wetTips.sharp.destroy(true)
+    this.wetTips.splotch.destroy(true)
+    for (const texture of Object.values(this.paperTextures)) texture.destroy(true)
+    this.textures.soft.destroy(true)
+    this.textures.rough.destroy(true)
+    this.textures.grain.destroy(true)
     // removeView: false — React owns the <canvas> DOM node, Pixi should only clean up its internal resources.
     this.app.destroy(false, { children: true, texture: true })
   }
@@ -272,7 +297,10 @@ export class PaintEngine {
     const def = WET_BRUSHES[stroke.brush as keyof typeof WET_BRUSHES]
     const spacing = Math.max(2, stroke.size * def.spacingFactor)
     const { dabs, totalLength } = computeDabs(stroke.points, stroke.size, spacing, def.jitter, hashSeed(stroke.id))
-    const settledLength = totalLength - WET_TAIL_PX
+    // Tail at least one brush-width long: perfect-freehand also re-parameterizes roughly the
+    // first `size` px of arc length while points are still arriving, so with large brushes a
+    // fixed 64px tail could permanently stamp dabs the final bake would place elsewhere.
+    const settledLength = totalLength - Math.max(WET_TAIL_PX, stroke.size)
 
     const fresh = dabs.filter((d) => d.index >= this.wetStampedCount && d.arcLength <= settledLength)
     if (fresh.length > 0) {
@@ -372,14 +400,30 @@ export class PaintEngine {
     washInput.addChild(new Sprite(this.silhouetteTexture))
     this.washFilter.update({ color: stroke.color, ...def.wash })
     washInput.filters = [this.washFilter]
-    // blendMode goes on an unfiltered wrapper (established gotcha: multiply directly on a
-    // filtered node composites against the filter's transparent backdrop and crushes color).
-    const wrapper = new Container()
-    wrapper.addChild(washInput)
-    wrapper.blendMode = 'multiply'
-    this.app.renderer.render({ container: wrapper, target: this.paintedTexture, clear: false })
-    washInput.filters = []
-    wrapper.destroy({ children: true })
+    // Two-step composite. A container's blendMode does NOT reach its filter's output quad —
+    // the quad draws with the filtered node's own (normal) blend, so wrapping a filtered
+    // container in a multiply parent silently bakes with normal blending (measured directly:
+    // a glaze over existing paint committed the normal-blend pixel value, not the multiply
+    // one; invisible over bare paper, where the two agree). So: render the wash into a
+    // scratch texture with normal blending, then stamp that into the painting with a multiply
+    // Sprite — sprite-level multiply is the same proven path the painted layer itself uses.
+    // previewTexture doubles as the scratch: a bake happens exactly when the preview retires,
+    // and it's re-cleared right after.
+    this.app.renderer.render({ container: washInput, target: this.previewTexture, clear: true })
+    washInput.filters = [] // detach before destroy — the filter is shared and reused
+    washInput.destroy({ children: true })
+
+    const stamp = new Sprite(this.previewTexture)
+    stamp.blendMode = 'multiply'
+    // The stamp must be a CHILD of the rendered root: the root container of an explicit
+    // render() doesn't get its own blend state applied (this, not filters, is why earlier
+    // attempts at multiply-on-the-wrapper silently baked with normal blending).
+    const root = new Container()
+    root.addChild(stamp)
+    this.app.renderer.render({ container: root, target: this.paintedTexture, clear: false })
+    stamp.destroy() // sprite only — previewTexture is engine-owned
+    root.destroy()
+    this.clearPreview()
   }
 
   private clearTexture() {

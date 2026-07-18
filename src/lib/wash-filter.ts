@@ -89,6 +89,10 @@ export class WashFilter extends Filter {
 
     super({
       glProgram: GlProgram.from({ vertex: defaultFilterVert, fragment, name: 'watercolor-wash' }),
+      // Filters default to resolution 1, which would run the wash at half res on hiDPI
+      // displays and blur every wet stroke relative to the rest of the picture.
+      resolution: 'inherit',
+      antialias: 'inherit',
       resources: {
         washUniforms,
         uPaperTexture: paper.source,

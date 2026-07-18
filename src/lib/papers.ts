@@ -142,7 +142,13 @@ function createPaperTexture(recipe: PaperRecipe, size = PAPER_TILE_SIZE): Textur
     ctx.putImageData(img, 0, 0)
   }
 
-  return Texture.from(canvas)
+  const texture = Texture.from(canvas)
+  // The wash shader samples this texture at UVs beyond 1 (canvas is larger than one tile) —
+  // Pixi's default addressMode is clamp-to-edge, which would smear the last row/column into
+  // streaks. Don't rely on the paper TilingSprite happening to flip this to repeat first: a
+  // paper switch rebakes strokes synchronously, before the sprite ever renders the new texture.
+  texture.source.style.addressMode = 'repeat'
+  return texture
 }
 
 export function createPaperTextures(): Record<PaperId, Texture> {
