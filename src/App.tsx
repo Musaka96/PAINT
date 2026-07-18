@@ -1,15 +1,24 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { PaintCanvas, type PaintCanvasHandle } from '@/components/PaintCanvas'
 import { Toolbar } from '@/components/Toolbar'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { DEFAULT_WIGGLE, type BrushId, type WiggleSettings } from '@/lib/brush-types'
 import { DEFAULT_PAPER, type PaperId } from '@/lib/papers'
 
-const CANVAS_WIDTH = 900
-const CANVAS_HEIGHT = 600
+/** Horizontal room reserved for the floating sidebar (its width + breathing space). */
+const SIDEBAR_SPACE = 92
 
 function App() {
   const canvasHandleRef = useRef<PaintCanvasHandle>(null)
+  // The engine's textures are allocated at this size, and changing it recreates the engine —
+  // which destroys the drawing. So: while the canvas is still blank, follow window resizes at
+  // full size (recreating costs nothing); once anything is drawn, the size freezes and the
+  // canvas only CSS-scales down to fit (pointer coords map through the live bounding rect).
+  const [canvasSize, setCanvasSize] = useState(() => ({
+    width: Math.max(480, window.innerWidth - SIDEBAR_SPACE - 32),
+    height: Math.max(360, window.innerHeight - 32),
+  }))
+  const [displayScale, setDisplayScale] = useState(1)
   const [brush, setBrush] = useState<BrushId>('wetround')
   const [color, setColor] = useState('#1e1e2e')
   const [size, setSize] = useState(18)
@@ -17,6 +26,25 @@ function App() {
   const [paper, setPaper] = useState<PaperId>(DEFAULT_PAPER)
   const [canUndo, setCanUndo] = useState(false)
   const [canRedo, setCanRedo] = useState(false)
+
+  const isBlank = !canUndo && !canRedo
+
+  useEffect(() => {
+    const compute = () => {
+      const availWidth = Math.max(480, window.innerWidth - SIDEBAR_SPACE - 32)
+      const availHeight = Math.max(360, window.innerHeight - 32)
+      if (isBlank && (availWidth !== canvasSize.width || availHeight !== canvasSize.height)) {
+        setCanvasSize({ width: availWidth, height: availHeight })
+        setDisplayScale(1)
+        return
+      }
+      // Drawing in progress: never touch the engine, just shrink the display to fit.
+      setDisplayScale(Math.min(1, availWidth / canvasSize.width, availHeight / canvasSize.height))
+    }
+    compute()
+    window.addEventListener('resize', compute)
+    return () => window.removeEventListener('resize', compute)
+  }, [canvasSize, isBlank])
 
   const handleWiggleChange = (settings: Partial<WiggleSettings>) => {
     setWiggle((prev) => ({ ...prev, ...settings }))
@@ -33,8 +61,37 @@ function App() {
 
   return (
     <TooltipProvider>
-      <div className="flex min-h-svh flex-col items-center gap-6 bg-muted/40 px-4 py-8">
-        <h1 className="text-2xl font-semibold tracking-tight">Wiggly Paint</h1>
+      <div
+        className="fixed inset-0 overflow-hidden"
+        style={{ background: 'linear-gradient(135deg, #f6f0e8 0%, #efe8f2 55%, #e7eef1 100%)' }}
+      >
+        <main
+          className="absolute inset-y-4 left-4 flex items-center justify-center"
+          style={{ right: SIDEBAR_SPACE }}
+        >
+          <PaintCanvas
+            ref={canvasHandleRef}
+            brush={brush}
+            color={color}
+            size={size}
+            wiggle={wiggle}
+            paper={paper}
+            width={canvasSize.width}
+            height={canvasSize.height}
+            displayScale={displayScale}
+            onHistoryChange={(undo, redo) => {
+              setCanUndo(undo)
+              setCanRedo(redo)
+            }}
+          />
+        </main>
+
+        <h1
+          className="pointer-events-none fixed top-4 left-6 z-10 -rotate-2 rounded-full bg-white/70 px-4 py-0.5 text-2xl text-violet-500 shadow-sm backdrop-blur-sm select-none"
+          style={{ fontFamily: "'Caveat', cursive" }}
+        >
+          Wiggly Paint
+        </h1>
 
         <Toolbar
           brush={brush}
@@ -53,21 +110,6 @@ function App() {
           onRedo={() => canvasHandleRef.current?.redo()}
           onClear={() => canvasHandleRef.current?.clear()}
           onExport={handleExport}
-        />
-
-        <PaintCanvas
-          ref={canvasHandleRef}
-          brush={brush}
-          color={color}
-          size={size}
-          wiggle={wiggle}
-          paper={paper}
-          width={CANVAS_WIDTH}
-          height={CANVAS_HEIGHT}
-          onHistoryChange={(undo, redo) => {
-            setCanUndo(undo)
-            setCanRedo(redo)
-          }}
         />
       </div>
     </TooltipProvider>

@@ -18,11 +18,15 @@ interface PaintCanvasProps {
   paper: PaperId
   width: number
   height: number
+  /** Display-only scale: shrinks the element (not the engine) so the fixed-size drawing
+   * surface fits the window if it's resized smaller after mount. Pointer coords are
+   * unaffected — they already map through the live bounding rect. */
+  displayScale?: number
   onHistoryChange: (canUndo: boolean, canRedo: boolean) => void
 }
 
 export const PaintCanvas = forwardRef<PaintCanvasHandle, PaintCanvasProps>(function PaintCanvas(
-  { brush, color, size, wiggle, paper, width, height, onHistoryChange },
+  { brush, color, size, wiggle, paper, width, height, displayScale = 1, onHistoryChange },
   ref,
 ) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -113,7 +117,13 @@ export const PaintCanvas = forwardRef<PaintCanvasHandle, PaintCanvasProps>(funct
       // A second pointer mid-stroke (palm touch, second finger) must not restart the stroke —
       // that would discard the in-progress points and clear the wet silhouette.
       if (drawingRef.current) return
-      canvas.setPointerCapture(e.pointerId)
+      // Capture keeps the stroke alive when the pointer leaves the canvas mid-drag. It can
+      // throw (pointer already released, or a synthetic event) — drawing shouldn't die with it.
+      try {
+        canvas.setPointerCapture(e.pointerId)
+      } catch {
+        /* stroke still works without capture */
+      }
       drawingRef.current = true
       const { x, y, pressure } = toLocal(e)
       engineRef.current?.pointerDown(x, y, pressure)
@@ -126,7 +136,11 @@ export const PaintCanvas = forwardRef<PaintCanvasHandle, PaintCanvasProps>(funct
     const handleUp = (e: PointerEvent) => {
       if (!drawingRef.current) return
       drawingRef.current = false
-      canvas.releasePointerCapture(e.pointerId)
+      try {
+        canvas.releasePointerCapture(e.pointerId)
+      } catch {
+        /* capture may never have been taken */
+      }
       engineRef.current?.pointerUp()
     }
 
@@ -146,8 +160,8 @@ export const PaintCanvas = forwardRef<PaintCanvasHandle, PaintCanvasProps>(funct
   return (
     <canvas
       ref={canvasRef}
-      className="touch-none rounded-lg border border-border shadow-sm"
-      style={{ width, height }}
+      className="touch-none rounded-2xl border border-black/5 shadow-[0_16px_48px_-16px_rgba(90,70,120,0.35)]"
+      style={{ width: width * displayScale, height: height * displayScale }}
     />
   )
 })
