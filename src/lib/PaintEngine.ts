@@ -40,6 +40,12 @@ export class PaintEngine {
   private wiggleLayer = new Container()
   private wiggleGraphics = new Map<string, Graphics>()
 
+  /** Topmost layer: the hover brush preview — a ghost of the tip that follows the pointer so
+   * you can see what you're about to put down. Rebuilt lazily when brush/color/size change,
+   * hidden while drawing and excluded from exports. */
+  private cursorLayer = new Container()
+  private cursorDirty = true
+
   /** Live preview for the in-progress round/watercolor stroke only — wiggly strokes preview via
    * wiggleLayer instead, since they're already drawn there whether committed or not.
    * Rendered into a texture via an explicit renderer.render() call (same as baking), rather than
@@ -115,6 +121,8 @@ export class PaintEngine {
     app.stage.addChild(this.wetWiggleLayer)
     app.stage.addChild(this.wiggleLayer)
     app.stage.addChild(this.previewSprite)
+    this.cursorLayer.visible = false
+    app.stage.addChild(this.cursorLayer)
 
     this.clearTexture()
 
@@ -154,14 +162,17 @@ export class PaintEngine {
 
   setBrush(id: BrushId) {
     this.brushId = id
+    this.cursorDirty = true
   }
 
   setColor(color: string) {
     this.color = color
+    this.cursorDirty = true
   }
 
   setSize(size: number) {
     this.size = size
+    this.cursorDirty = true
   }
 
   setWiggle(settings: Partial<WiggleSettings>) {
@@ -181,7 +192,53 @@ export class PaintEngine {
     this.rebuildBaked()
   }
 
+  /** Pointer is moving over the canvas without drawing — show the brush ghost there. */
+  pointerHover(x: number, y: number) {
+    if (this.currentStroke) return
+    if (this.cursorDirty) this.rebuildCursor()
+    this.cursorLayer.position.set(x, y)
+    this.cursorLayer.visible = true
+  }
+
+  pointerLeave() {
+    this.cursorLayer.visible = false
+  }
+
+  /** The ghost shows the actual footprint: wet brushes stamp their real (tinted, translucent)
+   * tip texture, the ink brushes show a ring — plus a two-tone outline so it reads on any
+   * color underneath. */
+  private rebuildCursor() {
+    this.cursorDirty = false
+    for (const child of [...this.cursorLayer.children]) child.destroy({ children: true })
+
+    const radius = this.size / 2
+    if (isWetBrush(this.brushId)) {
+      const def = WET_BRUSHES[this.brushId as keyof typeof WET_BRUSHES]
+      const tip = new Sprite(this.wetTips[def.tip])
+      tip.anchor.set(0.5)
+      tip.width = this.size
+      tip.height = this.size
+      tip.tint = this.color
+      tip.alpha = 0.45
+      this.cursorLayer.addChild(tip)
+    }
+    const ring = new Graphics()
+    ring.circle(0, 0, radius).stroke({ width: 2.5, color: 0xffffff, alpha: 0.65 })
+    ring.circle(0, 0, radius).stroke({ width: 1.2, color: 0x1e1e2e, alpha: 0.65 })
+    if (this.brushId === 'wobble') {
+      // A tiny sine squiggle inside the ring — this one draws wiggly lines, not dabs.
+      const span = Math.max(radius * 0.7, 7)
+      ring.moveTo(-span, 0)
+      for (let i = -span; i <= span; i += 1) ring.lineTo(i, Math.sin((i / span) * Math.PI * 2) * span * 0.3)
+      ring.stroke({ width: 1.5, color: this.color, alpha: 0.9 })
+    } else if (this.brushId === 'round') {
+      ring.circle(0, 0, Math.max(1.5, radius - 2)).fill({ color: this.color, alpha: 0.25 })
+    }
+    this.cursorLayer.addChild(ring)
+  }
+
   pointerDown(x: number, y: number, pressure: number) {
+    this.cursorLayer.visible = false
     this.redoStack = []
     this.currentStroke = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -284,7 +341,11 @@ export class PaintEngine {
       height: this.height,
       resolution: this.app.renderer.resolution,
     })
+    // The hover brush ghost is UI, not artwork — keep it out of the export.
+    const cursorWasVisible = this.cursorLayer.visible
+    this.cursorLayer.visible = false
     this.app.renderer.render({ container: this.app.stage, target: composite })
+    this.cursorLayer.visible = cursorWasVisible
     try {
       return await this.app.renderer.extract.base64(composite)
     } finally {

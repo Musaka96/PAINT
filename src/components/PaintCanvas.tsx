@@ -135,9 +135,16 @@ export const PaintCanvas = forwardRef<PaintCanvasHandle, PaintCanvasProps>(funct
       engineRef.current?.pointerDown(x, y, pressure)
     }
     const handleMove = (e: PointerEvent) => {
-      if (!drawingRef.current) return
       const { x, y, pressure } = toLocal(e)
-      engineRef.current?.pointerMove(x, y, pressure)
+      if (drawingRef.current) {
+        engineRef.current?.pointerMove(x, y, pressure)
+      } else if (e.pointerType !== 'touch') {
+        // Hovering (mouse/pen in the air): show the brush ghost. Touch has no hover.
+        engineRef.current?.pointerHover(x, y)
+      }
+    }
+    const handleLeave = () => {
+      engineRef.current?.pointerLeave()
     }
     const handleUp = (e: PointerEvent) => {
       if (!drawingRef.current) return
@@ -154,19 +161,21 @@ export const PaintCanvas = forwardRef<PaintCanvasHandle, PaintCanvasProps>(funct
     canvas.addEventListener('pointermove', handleMove)
     canvas.addEventListener('pointerup', handleUp)
     canvas.addEventListener('pointercancel', handleUp)
+    canvas.addEventListener('pointerleave', handleLeave)
 
     return () => {
       canvas.removeEventListener('pointerdown', handleDown)
       canvas.removeEventListener('pointermove', handleMove)
       canvas.removeEventListener('pointerup', handleUp)
       canvas.removeEventListener('pointercancel', handleUp)
+      canvas.removeEventListener('pointerleave', handleLeave)
     }
   }, [width, height])
 
   return (
     <canvas
       ref={canvasRef}
-      className="touch-none rounded-2xl border border-black/5 shadow-[0_16px_48px_-16px_rgba(90,70,120,0.35)]"
+      className="cursor-none touch-none rounded-2xl border border-black/5 shadow-[0_16px_48px_-16px_rgba(90,70,120,0.35)]"
       style={{ width: width * displayScale, height: height * displayScale }}
     />
   )
