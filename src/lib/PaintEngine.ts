@@ -17,6 +17,9 @@ const BACKGROUND_COLOR = 0xffffff
  * recent points, so dabs stamped there too early would freeze in soon-to-be-wrong positions. */
 const WET_TAIL_PX = 64
 
+/** Edge-orbit radius (px) for wet strokes with the wiggle toggle on. */
+const WET_WIGGLE_PX = 2.5
+
 export class PaintEngine {
   readonly app: Application
   readonly width: number
@@ -55,6 +58,22 @@ export class PaintEngine {
   /** How many dabs of the in-progress wet stroke are already stamped into silhouetteTexture. */
   private wetStampedCount = 0
 
+  /** Wet strokes with the wiggle toggle stay alive instead of baking: each keeps its stamped
+   * silhouette in a stroke-sized texture (stamped once), and every frame one wash pass with an
+   * advancing clock re-renders it into its display texture — the edge orbits, nothing restamps. */
+  private wetWiggleLayer = new Container()
+  private wetWiggleStrokes = new Map<
+    string,
+    {
+      stroke: Stroke
+      origin: { x: number; y: number }
+      silhouette: RenderTexture
+      wash: RenderTexture
+      washInput: Container
+      sprite: Sprite
+    }
+  >()
+
   private strokes: Stroke[] = []
   private redoStack: Stroke[] = []
   private currentStroke: Stroke | null = null
@@ -65,6 +84,7 @@ export class PaintEngine {
   private color = '#1e1e2e'
   private size = 18
   private wiggle: WiggleSettings = { ...DEFAULT_WIGGLE }
+  private wetWiggle = false
 
   private onHistoryChange?: (canUndo: boolean, canRedo: boolean) => void
 
@@ -92,17 +112,24 @@ export class PaintEngine {
     this.previewSprite = new Sprite(this.previewTexture)
     app.stage.addChild(this.paperSprite)
     app.stage.addChild(paintedSprite)
+    app.stage.addChild(this.wetWiggleLayer)
     app.stage.addChild(this.wiggleLayer)
     app.stage.addChild(this.previewSprite)
 
     this.clearTexture()
 
     app.ticker.add(() => {
+      // A live wiggle-on wet stroke animates even while the pointer holds still — its edge
+      // orbit advances with the clock, not with input.
+      if (this.currentStroke && isWetBrush(this.currentStroke.brush) && this.currentStroke.wetWiggle) {
+        this.previewDirty = true
+      }
       if (this.previewDirty) {
         this.previewDirty = false
         if (this.currentStroke) this.updatePreview()
       }
       this.tickWiggle()
+      this.tickWetWiggle()
     })
   }
 
@@ -141,6 +168,10 @@ export class PaintEngine {
     this.wiggle = { ...this.wiggle, ...settings }
   }
 
+  setWetWiggle(on: boolean) {
+    this.wetWiggle = on
+  }
+
   setPaper(id: PaperId) {
     if (id === this.paperId) return
     this.paperId = id
@@ -159,6 +190,7 @@ export class PaintEngine {
       size: this.size,
       points: [{ x, y, pressure }],
       wiggle: this.brushId === 'wobble' ? { ...this.wiggle } : undefined,
+      wetWiggle: isWetBrush(this.brushId) ? this.wetWiggle : undefined,
     }
     if (isWetBrush(this.brushId)) {
       this.wetStampedCount = 0
@@ -191,11 +223,21 @@ export class PaintEngine {
 
     if (stroke.points.length > 0) {
       this.strokes.push(stroke)
-      // Wiggly strokes are already live in wiggleLayer (tickWiggle tracks `strokes` directly) —
-      // nothing to bake. Everything else gets flattened into the static texture once.
-      if (stroke.brush !== 'wobble') this.bakeStroke(stroke)
+      this.commitStroke(stroke)
     }
     this.emitHistory()
+  }
+
+  /** Routes a newly-added (or redone) stroke to its home: wobble strokes are already live in
+   * wiggleLayer; wiggle-on wet strokes become a live animated entry; everything else gets
+   * flattened into the static texture once. */
+  private commitStroke(stroke: Stroke) {
+    if (stroke.brush === 'wobble') return
+    if (isWetBrush(stroke.brush) && stroke.wetWiggle) {
+      this.addWetWiggleStroke(stroke)
+      return
+    }
+    this.bakeStroke(stroke)
   }
 
   undo() {
@@ -204,6 +246,8 @@ export class PaintEngine {
     this.redoStack.push(stroke)
     if (stroke.brush === 'wobble') {
       this.removeWiggleGraphics(stroke.id)
+    } else if (isWetBrush(stroke.brush) && stroke.wetWiggle) {
+      this.destroyWetWiggleStroke(stroke.id) // live entry — nothing was baked
     } else {
       this.rebuildBaked() // no way to "unbake" a single stroke from the flattened texture
     }
@@ -214,7 +258,7 @@ export class PaintEngine {
     if (this.redoStack.length === 0) return
     const stroke = this.redoStack.pop()!
     this.strokes.push(stroke)
-    if (stroke.brush !== 'wobble') this.bakeStroke(stroke)
+    this.commitStroke(stroke)
     this.emitHistory()
   }
 
@@ -228,6 +272,7 @@ export class PaintEngine {
       g.destroy()
     }
     this.wiggleGraphics.clear()
+    for (const id of [...this.wetWiggleStrokes.keys()]) this.destroyWetWiggleStroke(id)
     this.emitHistory()
   }
 
@@ -248,6 +293,7 @@ export class PaintEngine {
   }
 
   destroy() {
+    for (const id of [...this.wetWiggleStrokes.keys()]) this.destroyWetWiggleStroke(id)
     // Resources app.destroy can't reach: not referenced by any stage object (or, for the
     // paper textures, only the active one is).
     this.silhouetteTexture.destroy(true)
@@ -314,7 +360,12 @@ export class PaintEngine {
     const washInput = new Container()
     washInput.addChild(new Sprite(this.silhouetteTexture))
     stampDabs(washInput, dabs.filter((d) => d.index >= this.wetStampedCount), this.wetTips[def.tip], stroke.size)
-    this.washFilter.update({ color: stroke.color, ...def.wash })
+    this.washFilter.update({
+      color: stroke.color,
+      ...def.wash,
+      time: performance.now() / 1000,
+      wiggle: stroke.wetWiggle ? WET_WIGGLE_PX : 0,
+    })
     washInput.filters = [this.washFilter]
     this.app.renderer.render({ container: washInput, target: this.previewTexture, clear: true })
     washInput.filters = [] // detach before destroy — the filter is shared and reused
@@ -350,6 +401,12 @@ export class PaintEngine {
       g.destroy()
       this.wiggleGraphics.delete(id)
     }
+  }
+
+  private tickWetWiggle() {
+    if (this.wetWiggleStrokes.size === 0) return
+    const time = performance.now() / 1000
+    for (const entry of this.wetWiggleStrokes.values()) this.renderWetWiggleStroke(entry, time)
   }
 
   private updateWiggleGraphics(stroke: Stroke, time: number) {
@@ -435,7 +492,85 @@ export class PaintEngine {
   private rebuildBaked() {
     this.clearTexture()
     for (const stroke of this.strokes) {
-      if (stroke.brush !== 'wobble') this.bakeStroke(stroke)
+      // Wobble and wiggle-on wet strokes live in their own animated layers, never in the bake.
+      if (stroke.brush === 'wobble') continue
+      if (isWetBrush(stroke.brush) && stroke.wetWiggle) continue
+      this.bakeStroke(stroke)
     }
+  }
+
+  /** Creates the live entry for a wiggle-on wet stroke: silhouette stamped once into a
+   * stroke-sized texture, plus a same-sized display texture the animated wash renders into,
+   * shown by a multiply sprite positioned at the stroke's canvas origin. */
+  private addWetWiggleStroke(stroke: Stroke) {
+    const def = WET_BRUSHES[stroke.brush as keyof typeof WET_BRUSHES]
+    const spacing = Math.max(2, stroke.size * def.spacingFactor)
+    const { dabs } = computeDabs(stroke.points, stroke.size, spacing, def.jitter, hashSeed(stroke.id))
+    if (dabs.length === 0) return
+
+    // Stroke bounds with room for the tip radius (incl. size jitter), the edge orbit, and a
+    // little slack — the wash displaces its lookup, so starved padding would clip the boil.
+    const pad = (stroke.size * (1 + def.jitter.size)) / 2 + WET_WIGGLE_PX + 6
+    let minX = Infinity
+    let minY = Infinity
+    let maxX = -Infinity
+    let maxY = -Infinity
+    for (const dab of dabs) {
+      if (dab.x < minX) minX = dab.x
+      if (dab.x > maxX) maxX = dab.x
+      if (dab.y < minY) minY = dab.y
+      if (dab.y > maxY) maxY = dab.y
+    }
+    const origin = { x: Math.floor(minX - pad), y: Math.floor(minY - pad) }
+    const width = Math.max(1, Math.ceil(maxX + pad) - origin.x)
+    const height = Math.max(1, Math.ceil(maxY + pad) - origin.y)
+
+    const resolution = this.app.renderer.resolution
+    const silhouette = RenderTexture.create({ width, height, resolution })
+    const batch = new Container()
+    batch.position.set(-origin.x, -origin.y)
+    stampDabs(batch, dabs, this.wetTips[def.tip], stroke.size)
+    this.app.renderer.render({ container: batch, target: silhouette, clear: true })
+    batch.destroy({ children: true })
+
+    const wash = RenderTexture.create({ width, height, resolution })
+    const washInput = new Container()
+    washInput.addChild(new Sprite(silhouette))
+    washInput.filters = [this.washFilter] // shared — detached before destroy
+
+    const sprite = new Sprite(wash)
+    sprite.position.set(origin.x, origin.y)
+    sprite.blendMode = 'multiply'
+    this.wetWiggleLayer.addChild(sprite)
+
+    this.wetWiggleStrokes.set(stroke.id, { stroke, origin, silhouette, wash, washInput, sprite })
+    this.renderWetWiggleStroke(this.wetWiggleStrokes.get(stroke.id)!, performance.now() / 1000)
+  }
+
+  private renderWetWiggleStroke(
+    entry: NonNullable<ReturnType<typeof this.wetWiggleStrokes.get>>,
+    time: number,
+  ) {
+    const def = WET_BRUSHES[entry.stroke.brush as keyof typeof WET_BRUSHES]
+    this.washFilter.update({
+      color: entry.stroke.color,
+      ...def.wash,
+      time,
+      wiggle: WET_WIGGLE_PX,
+      paperOffset: entry.origin,
+    })
+    this.app.renderer.render({ container: entry.washInput, target: entry.wash, clear: true })
+  }
+
+  private destroyWetWiggleStroke(id: string) {
+    const entry = this.wetWiggleStrokes.get(id)
+    if (!entry) return
+    entry.washInput.filters = [] // the wash filter is shared — don't let destroy take it
+    entry.washInput.destroy({ children: true })
+    this.wetWiggleLayer.removeChild(entry.sprite)
+    entry.sprite.destroy()
+    entry.silhouette.destroy(true)
+    entry.wash.destroy(true)
+    this.wetWiggleStrokes.delete(id)
   }
 }

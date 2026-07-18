@@ -15,6 +15,7 @@ interface PaintCanvasProps {
   color: string
   size: number
   wiggle: WiggleSettings
+  wetWiggle: boolean
   paper: PaperId
   width: number
   height: number
@@ -26,7 +27,7 @@ interface PaintCanvasProps {
 }
 
 export const PaintCanvas = forwardRef<PaintCanvasHandle, PaintCanvasProps>(function PaintCanvas(
-  { brush, color, size, wiggle, paper, width, height, displayScale = 1, onHistoryChange },
+  { brush, color, size, wiggle, wetWiggle, paper, width, height, displayScale = 1, onHistoryChange },
   ref,
 ) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -65,6 +66,7 @@ export const PaintCanvas = forwardRef<PaintCanvasHandle, PaintCanvasProps>(funct
       engine.setColor(color)
       engine.setSize(size)
       engine.setWiggle(wiggle)
+      engine.setWetWiggle(wetWiggle)
       engine.setPaper(paper)
       engine.setHistoryListener(onHistoryChange)
     })
@@ -95,6 +97,10 @@ export const PaintCanvas = forwardRef<PaintCanvasHandle, PaintCanvasProps>(funct
   useEffect(() => {
     engineRef.current?.setWiggle(wiggle)
   }, [wiggle])
+
+  useEffect(() => {
+    engineRef.current?.setWetWiggle(wetWiggle)
+  }, [wetWiggle])
 
   useEffect(() => {
     engineRef.current?.setPaper(paper)

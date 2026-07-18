@@ -39,6 +39,9 @@ export interface Stroke {
   points: StrokePoint[]
   /** Only set for 'wobble' strokes — captured at draw time, like color/size. */
   wiggle?: WiggleSettings
+  /** Wet brushes only, captured at draw time: when true the stroke's outer edge stays "wet" —
+   * animated forever by the wash shader instead of being baked to static pixels. */
+  wetWiggle?: boolean
 }
 
 export interface BrushTextures {

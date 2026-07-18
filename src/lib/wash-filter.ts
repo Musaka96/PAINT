@@ -31,6 +31,9 @@ uniform float uOpacity;
 uniform float uEdgeGain;
 uniform float uGranulation;
 uniform float uPaperScale;
+uniform float uTime;
+uniform float uWiggle;
+uniform vec2 uPaperOffset;
 
 // highp to match the default filter vertex shader's declarations — differing precisions on the
 // same uniform across stages is a link error on some GL drivers.
@@ -39,13 +42,30 @@ uniform highp vec4 uOutputFrame;
 
 void main()
 {
-    float a = texture(uTexture, vTextureCoord).a;
+    // Frame-local coords plus uPaperOffset give true canvas coords even when the filter runs
+    // over a stroke-sized offscreen texture whose frame origin isn't the stroke's canvas
+    // position (the live-wiggle path); the full-canvas paths pass offset (0,0).
+    vec2 canvasCoord = vTextureCoord * uInputSize.xy + uOutputFrame.xy + uPaperOffset;
+
+    vec2 uv = vTextureCoord;
+    if (uWiggle > 0.0) {
+        // "Wet" edges: displace the silhouette lookup along a small circle. Deep inside the
+        // stroke alpha is ~1 everywhere nearby so nothing changes; at the boundary the alpha
+        // ramp shifts, so every edge point orbits its rest position. The phase varies smoothly
+        // across the canvas, so neighboring points circle out of step — the edge crawls and
+        // boils instead of sliding rigidly.
+        float phase = sin(canvasCoord.x * 0.045) + sin(canvasCoord.y * 0.052)
+            + sin((canvasCoord.x + canvasCoord.y) * 0.021);
+        float angle = uTime * 3.0 + phase * 2.4;
+        uv += vec2(cos(angle), sin(angle)) * uWiggle * uInputSize.zw;
+    }
+
+    float a = texture(uTexture, uv).a;
     if (a < 0.004) {
         finalColor = vec4(0.0);
         return;
     }
 
-    vec2 canvasCoord = vTextureCoord * uInputSize.xy + uOutputFrame.xy;
     float paper = texture(uPaperTexture, canvasCoord * uPaperScale).r;
     // Paper luminance recentered around a typical sheet tone and contrast-boosted into a
     // -1..1 grain signal; positive where the sheet dips (valleys hold more pigment).
@@ -73,6 +93,12 @@ export interface WashSettings {
   edgeGain: number
   /** Depth of paper-driven mottling (0 = flat wash). */
   granulation: number
+  /** Edge-orbit radius in px; 0 disables the animated wet edge. */
+  wiggle?: number
+  /** Animation clock in seconds — only meaningful when wiggle > 0. */
+  time?: number
+  /** Canvas-space origin of the filtered frame, for stroke-local offscreen textures. */
+  paperOffset?: { x: number; y: number }
 }
 
 export class WashFilter extends Filter {
@@ -85,6 +111,9 @@ export class WashFilter extends Filter {
       uEdgeGain: { value: 0, type: 'f32' },
       uGranulation: { value: 0, type: 'f32' },
       uPaperScale: { value: 1 / paperTileSize, type: 'f32' },
+      uTime: { value: 0, type: 'f32' },
+      uWiggle: { value: 0, type: 'f32' },
+      uPaperOffset: { value: new Float32Array([0, 0]), type: 'vec2<f32>' },
     })
 
     super({
@@ -110,6 +139,9 @@ export class WashFilter extends Filter {
       uOpacity: number
       uEdgeGain: number
       uGranulation: number
+      uTime: number
+      uWiggle: number
+      uPaperOffset: Float32Array
     }
     const [r, g, b] = new Color(settings.color).toArray()
     uniforms.uColor[0] = r
@@ -118,6 +150,10 @@ export class WashFilter extends Filter {
     uniforms.uOpacity = settings.opacity
     uniforms.uEdgeGain = settings.edgeGain
     uniforms.uGranulation = settings.granulation
+    uniforms.uTime = settings.time ?? 0
+    uniforms.uWiggle = settings.wiggle ?? 0
+    uniforms.uPaperOffset[0] = settings.paperOffset?.x ?? 0
+    uniforms.uPaperOffset[1] = settings.paperOffset?.y ?? 0
     this.washUniforms.update()
   }
 

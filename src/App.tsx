@@ -23,6 +23,7 @@ function App() {
   const [color, setColor] = useState('#1e1e2e')
   const [size, setSize] = useState(18)
   const [wiggle, setWiggle] = useState<WiggleSettings>(DEFAULT_WIGGLE)
+  const [wetWiggle, setWetWiggle] = useState(false)
   const [paper, setPaper] = useState<PaperId>(DEFAULT_PAPER)
   const [canUndo, setCanUndo] = useState(false)
   const [canRedo, setCanRedo] = useState(false)
@@ -75,6 +76,7 @@ function App() {
             color={color}
             size={size}
             wiggle={wiggle}
+            wetWiggle={wetWiggle}
             paper={paper}
             width={canvasSize.width}
             height={canvasSize.height}
@@ -102,6 +104,8 @@ function App() {
           onSizeChange={setSize}
           wiggle={wiggle}
           onWiggleChange={handleWiggleChange}
+          wetWiggle={wetWiggle}
+          onWetWiggleChange={setWetWiggle}
           paper={paper}
           onPaperChange={setPaper}
           canUndo={canUndo}

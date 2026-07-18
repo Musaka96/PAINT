@@ -10,6 +10,7 @@ import {
   SlidersHorizontal,
   Trash2,
   Undo2,
+  Waves,
 } from 'lucide-react'
 import { Slider } from '@/components/ui/slider'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
@@ -17,9 +18,12 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import type { BrushId, WigglePattern, WiggleSettings } from '@/lib/brush-types'
 import { PAPERS, type PaperId } from '@/lib/papers'
 
-const BRUSH_OPTIONS: { id: BrushId; label: string; icon: typeof Circle }[] = [
+const INK_BRUSHES: { id: BrushId; label: string; icon: typeof Circle }[] = [
   { id: 'round', label: 'Round', icon: Circle },
   { id: 'wobble', label: 'Wiggly', icon: Sparkles },
+]
+
+const WET_BRUSH_OPTIONS: { id: BrushId; label: string; icon: typeof Circle }[] = [
   { id: 'wetsharp', label: 'Wet Sharp', icon: Droplet },
   { id: 'wetround', label: 'Wet Round', icon: Droplets },
 ]
@@ -49,6 +53,8 @@ interface ToolbarProps {
   onSizeChange: (size: number) => void
   wiggle: WiggleSettings
   onWiggleChange: (settings: Partial<WiggleSettings>) => void
+  wetWiggle: boolean
+  onWetWiggleChange: (on: boolean) => void
   paper: PaperId
   onPaperChange: (paper: PaperId) => void
   canUndo: boolean
@@ -113,6 +119,8 @@ export function Toolbar({
   onSizeChange,
   wiggle,
   onWiggleChange,
+  wetWiggle,
+  onWetWiggleChange,
   paper,
   onPaperChange,
   canUndo,
@@ -155,7 +163,7 @@ export function Toolbar({
       ref={asideRef}
       className="fixed top-1/2 right-3 z-20 flex -translate-y-1/2 flex-col items-center gap-1 rounded-[28px] border border-black/5 bg-white/80 p-2 shadow-xl backdrop-blur-md"
     >
-      {BRUSH_OPTIONS.map(({ id, label, icon: Icon }) => (
+      {INK_BRUSHES.map(({ id, label, icon: Icon }) => (
         <ToolButton key={id} label={label} active={brush === id} onClick={() => onBrushChange(id)}>
           <Icon className="size-5" />
         </ToolButton>
@@ -166,6 +174,26 @@ export function Toolbar({
           <SlidersHorizontal className="size-5" />
         </ToolButton>
       )}
+
+      {/* Waterpaints live together in their own little puddle. */}
+      <div className="mt-1 flex flex-col items-center gap-1 rounded-3xl bg-sky-100/60 p-1">
+        {WET_BRUSH_OPTIONS.map(({ id, label, icon: Icon }) => (
+          <ToolButton key={id} label={label} active={brush === id} onClick={() => onBrushChange(id)}>
+            <Icon className="size-5" />
+          </ToolButton>
+        ))}
+        {(brush === 'wetsharp' || brush === 'wetround') && (
+          <ToolButton
+            label={wetWiggle ? 'Wiggly edges: on' : 'Wiggly edges: off'}
+            onClick={() => onWetWiggleChange(!wetWiggle)}
+            className={
+              wetWiggle ? 'bg-sky-200/80 text-sky-700 shadow-inner animate-pulse' : 'text-sky-600/60'
+            }
+          >
+            <Waves className="size-5" />
+          </ToolButton>
+        )}
+      </div>
 
       <div className="my-1 h-px w-7 bg-black/10" />
 
