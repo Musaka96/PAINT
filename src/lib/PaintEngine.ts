@@ -1,4 +1,5 @@
 import { Application, Container, Graphics, RenderTexture, Sprite, TilingSprite, type Texture } from 'pixi.js'
+import { GIFEncoder, applyPalette, quantize } from 'gifenc'
 import { DEFAULT_WIGGLE, type BrushId, type BrushTextures, type ClassicBrushId, type Stroke, type StrokePoint, type WiggleSettings } from './brush-types'
 import { brushes } from './brushes'
 import { drawWiggleInto } from './brushes/wobble'
@@ -86,6 +87,9 @@ export class PaintEngine {
   private currentStroke: Stroke | null = null
   /** Set on pointerMove, consumed once per ticker frame — coalesces preview renders. */
   private previewDirty = false
+  /** True while a GIF export owns the animated layers — input is ignored so a stray stroke
+   * can't mutate the scene between frames. */
+  private exporting = false
 
   private brushId: BrushId = 'round'
   private color = '#1e1e2e'
@@ -195,7 +199,7 @@ export class PaintEngine {
 
   /** Pointer is moving over the canvas without drawing — show the brush ghost there. */
   pointerHover(x: number, y: number) {
-    if (this.currentStroke) return
+    if (this.currentStroke || this.exporting) return
     this.cancelSizePreview()
     if (this.cursorDirty) this.rebuildCursor()
     this.cursorLayer.position.set(x, y)
@@ -261,6 +265,7 @@ export class PaintEngine {
   }
 
   pointerDown(x: number, y: number, pressure: number) {
+    if (this.exporting) return
     this.cursorLayer.visible = false
     this.redoStack = []
     this.currentStroke = {
@@ -373,6 +378,84 @@ export class PaintEngine {
       return await this.app.renderer.extract.base64(composite)
     } finally {
       composite.destroy(true)
+    }
+  }
+
+  /**
+   * Exports the picture as a perfectly looping GIF (default: 1 second at 20fps).
+   *
+   * The loop is exact, not approximate: every animated phase must advance by a whole multiple
+   * of 2π over the duration. The wet-edge orbit already runs at exactly 2π rad/s (1s period),
+   * and each wobble stroke's speed is quantized to the nearest nonzero multiple of 2π/duration
+   * for the export — a nudge of at most π/duration, barely visible, in exchange for frame N
+   * landing exactly on frame 0. Static content just rides along.
+   */
+  async exportGIF(duration = 1, fps = 20): Promise<Blob> {
+    if (this.currentStroke) throw new Error('Finish the stroke before exporting')
+    this.exporting = true
+    // GIF encoding (palette mapping + LZW) is CPU-bound and scales with pixel count — a
+    // full-viewport canvas takes 10s+ per second of animation. Cap the long side at 480px
+    // (the classic share-size); the render just happens at a fractional resolution.
+    const scale = Math.min(1, 480 / Math.max(this.width, this.height))
+    const composite = RenderTexture.create({ width: this.width, height: this.height, resolution: scale })
+    const cursorWasVisible = this.cursorLayer.visible
+    this.cursorLayer.visible = false
+
+    // Loop-quantized stand-ins for wobble strokes, drawn into the SAME reused per-stroke
+    // Graphics the live animation uses (keyed by id), so no scene surgery is needed.
+    const loopStep = (2 * Math.PI) / duration
+    const loopedWobbles = this.strokes
+      .filter((s) => s.brush === 'wobble')
+      .map((s) => ({
+        ...s,
+        wiggle: s.wiggle && {
+          ...s.wiggle,
+          speed: s.wiggle.speed > 0 ? loopStep * Math.max(1, Math.round(s.wiggle.speed / loopStep)) : 0,
+        },
+      }))
+
+    try {
+      const gif = GIFEncoder()
+      const frameCount = Math.max(1, Math.round(duration * fps))
+      const delay = Math.round(1000 / fps)
+      let palette: number[][] | null = null
+
+      for (let i = 0; i < frameCount; i++) {
+        const t = (i / fps) % duration
+        for (const stroke of loopedWobbles) this.updateWiggleGraphics(stroke, t)
+        for (const entry of this.wetWiggleStrokes.values()) this.renderWetWiggleStroke(entry, t)
+        this.app.renderer.render({ container: this.app.stage, target: composite })
+        const { pixels, width, height } = this.app.renderer.extract.pixels(composite)
+        // One palette for every frame: the scene barely changes between frames, and a shared
+        // palette avoids color flicker while skipping the slowest step on all but frame 0.
+        // rgb444 keys: the fractal paper produces a huge number of unique colors, and with
+        // finer key formats gifenc's per-pixel lookup cache thrashes (measured 12s+ per export);
+        // 4096 buckets make the cache actually cache. 12-bit key precision is plenty for GIF.
+        if (!palette) palette = quantize(pixels, 256, { format: 'rgb444' })
+        gif.writeFrame(applyPalette(pixels, palette, 'rgb444'), width, height, {
+          palette,
+          delay,
+          repeat: 0, // loop forever
+          first: i === 0,
+        })
+        // Yield so the page stays responsive; the next iteration overwrites any live-time
+        // animation the ticker sneaks in between frames. MessageChannel, not rAF or setTimeout:
+        // hidden tabs pause rAF entirely and throttle timers to ~1s, and an export must
+        // survive the user tabbing away without paying 20x throttle penalties.
+        await new Promise<void>((resolve) => {
+          const channel = new MessageChannel()
+          channel.port1.onmessage = () => resolve()
+          channel.port2.postMessage(0)
+        })
+      }
+
+      gif.finish()
+      return new Blob([gif.bytes()], { type: 'image/gif' })
+    } finally {
+      this.exporting = false
+      this.cursorLayer.visible = cursorWasVisible
+      composite.destroy(true)
+      // Next ticker frame redraws wobble + wet-wiggle strokes at live time again.
     }
   }
 

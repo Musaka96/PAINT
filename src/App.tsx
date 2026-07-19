@@ -60,6 +60,24 @@ function App() {
     link.click()
   }
 
+  const [exportingGif, setExportingGif] = useState(false)
+  const handleExportGif = async () => {
+    if (exportingGif) return
+    setExportingGif(true)
+    try {
+      const blob = await canvasHandleRef.current?.exportGIF()
+      if (!blob) return
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = 'paint.gif'
+      link.click()
+      URL.revokeObjectURL(url)
+    } finally {
+      setExportingGif(false)
+    }
+  }
+
   return (
     <TooltipProvider>
       <div
@@ -114,6 +132,8 @@ function App() {
           onRedo={() => canvasHandleRef.current?.redo()}
           onClear={() => canvasHandleRef.current?.clear()}
           onExport={handleExport}
+          onExportGif={handleExportGif}
+          exportingGif={exportingGif}
         />
       </div>
     </TooltipProvider>

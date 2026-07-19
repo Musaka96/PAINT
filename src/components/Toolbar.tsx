@@ -4,7 +4,9 @@ import {
   Download,
   Droplet,
   Droplets,
+  Film,
   Layers,
+  Loader2,
   Redo2,
   Sparkles,
   SlidersHorizontal,
@@ -62,6 +64,8 @@ interface ToolbarProps {
   onRedo: () => void
   onClear: () => void
   onExport: () => void
+  onExportGif: () => void
+  exportingGif: boolean
 }
 
 /** Round icon button for the sidebar. Active tools get a lavender bubble and a playful tilt. */
@@ -128,6 +132,8 @@ export function Toolbar({
   onRedo,
   onClear,
   onExport,
+  onExportGif,
+  exportingGif,
 }: ToolbarProps) {
   const [panel, setPanel] = useState<PanelId>(null)
   const asideRef = useRef<HTMLElement>(null)
@@ -234,14 +240,33 @@ export function Toolbar({
         <Trash2 className="size-5" />
       </ToolButton>
 
-      <button
-        type="button"
-        aria-label="Save PNG"
-        onClick={onExport}
-        className="mt-1 grid size-11 place-items-center rounded-full bg-violet-500 text-white shadow-md transition-all duration-200 hover:scale-110 hover:-rotate-6 hover:bg-violet-600"
-      >
-        <Download className="size-5" />
-      </button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            aria-label="Save PNG"
+            onClick={onExport}
+            className="mt-1 grid size-11 place-items-center rounded-full bg-violet-500 text-white shadow-md transition-all duration-200 hover:scale-110 hover:-rotate-6 hover:bg-violet-600"
+          >
+            <Download className="size-5" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="left">Save PNG</TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            aria-label="Save GIF (1s loop)"
+            onClick={onExportGif}
+            disabled={exportingGif}
+            className="grid size-11 place-items-center rounded-full bg-pink-500 text-white shadow-md transition-all duration-200 hover:scale-110 hover:rotate-6 hover:bg-pink-600 disabled:pointer-events-none disabled:opacity-70"
+          >
+            {exportingGif ? <Loader2 className="size-5 animate-spin" /> : <Film className="size-5" />}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="left">Save GIF — a perfect 1s loop</TooltipContent>
+      </Tooltip>
 
       {panel === 'color' && (
         <Flyout title="Color">

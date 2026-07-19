@@ -56,7 +56,9 @@ void main()
         // boils instead of sliding rigidly.
         float phase = sin(canvasCoord.x * 0.045) + sin(canvasCoord.y * 0.052)
             + sin((canvasCoord.x + canvasCoord.y) * 0.021);
-        float angle = uTime * 3.0 + phase * 2.4;
+        // Orbit speed is exactly 2*PI rad/s: one full circle per second, so the animation has
+        // a precise 1s period — GIF export renders t in [0,1) and loops seamlessly.
+        float angle = uTime * 6.2831853 + phase * 2.4;
         uv += vec2(cos(angle), sin(angle)) * uWiggle * uInputSize.zw;
     }
 

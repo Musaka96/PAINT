@@ -8,6 +8,7 @@ export interface PaintCanvasHandle {
   redo: () => void
   clear: () => void
   exportPNG: () => Promise<string>
+  exportGIF: () => Promise<Blob>
 }
 
 interface PaintCanvasProps {
@@ -41,6 +42,7 @@ export const PaintCanvas = forwardRef<PaintCanvasHandle, PaintCanvasProps>(funct
     redo: () => engineRef.current?.redo(),
     clear: () => engineRef.current?.clear(),
     exportPNG: () => engineRef.current?.exportPNG() ?? Promise.reject(new Error('Canvas not ready yet')),
+    exportGIF: () => engineRef.current?.exportGIF() ?? Promise.reject(new Error('Canvas not ready yet')),
   }))
 
   // StrictMode mounts this effect twice synchronously (mount -> cleanup -> mount). PixiJS can't have two
