@@ -45,6 +45,7 @@ export class PaintEngine {
    * hidden while drawing and excluded from exports. */
   private cursorLayer = new Container()
   private cursorDirty = true
+  private sizePreviewTimer: ReturnType<typeof setTimeout> | null = null
 
   /** Live preview for the in-progress round/watercolor stroke only — wiggly strokes preview via
    * wiggleLayer instead, since they're already drawn there whether committed or not.
@@ -195,6 +196,7 @@ export class PaintEngine {
   /** Pointer is moving over the canvas without drawing — show the brush ghost there. */
   pointerHover(x: number, y: number) {
     if (this.currentStroke) return
+    this.cancelSizePreview()
     if (this.cursorDirty) this.rebuildCursor()
     this.cursorLayer.position.set(x, y)
     this.cursorLayer.visible = true
@@ -202,6 +204,27 @@ export class PaintEngine {
 
   pointerLeave() {
     this.cursorLayer.visible = false
+  }
+
+  /** Flashes the brush ghost true-to-size in the middle of the canvas — feedback while
+   * dragging the size slider, where the pointer isn't over the canvas to show it in place. */
+  previewSize() {
+    if (this.currentStroke) return
+    if (this.cursorDirty) this.rebuildCursor()
+    this.cursorLayer.position.set(this.width / 2, this.height / 2)
+    this.cursorLayer.visible = true
+    if (this.sizePreviewTimer) clearTimeout(this.sizePreviewTimer)
+    this.sizePreviewTimer = setTimeout(() => {
+      this.cursorLayer.visible = false
+      this.sizePreviewTimer = null
+    }, 700)
+  }
+
+  private cancelSizePreview() {
+    if (this.sizePreviewTimer) {
+      clearTimeout(this.sizePreviewTimer)
+      this.sizePreviewTimer = null
+    }
   }
 
   /** The ghost shows the actual footprint: wet brushes stamp their real (tinted, translucent)
@@ -354,6 +377,7 @@ export class PaintEngine {
   }
 
   destroy() {
+    this.cancelSizePreview()
     for (const id of [...this.wetWiggleStrokes.keys()]) this.destroyWetWiggleStroke(id)
     // Resources app.destroy can't reach: not referenced by any stage object (or, for the
     // paper textures, only the active one is).

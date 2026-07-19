@@ -90,8 +90,16 @@ export const PaintCanvas = forwardRef<PaintCanvasHandle, PaintCanvasProps>(funct
     engineRef.current?.setColor(color)
   }, [color])
 
+  const sizePreviewArmedRef = useRef(false)
   useEffect(() => {
     engineRef.current?.setSize(size)
+    // Skip the mount-time run — the centered true-size ghost should only flash when the user
+    // actually changes the size.
+    if (!sizePreviewArmedRef.current) {
+      sizePreviewArmedRef.current = true
+      return
+    }
+    engineRef.current?.previewSize()
   }, [size])
 
   useEffect(() => {

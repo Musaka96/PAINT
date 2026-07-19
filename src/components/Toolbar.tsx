@@ -203,12 +203,9 @@ export function Toolbar({
         />
       </ToolButton>
 
-      {/* Size lives right in the sidebar — no panel to open for the thing you adjust most. */}
+      {/* Size lives right in the sidebar — no panel to open for the thing you adjust most.
+          True-to-size feedback comes from the engine's centered brush ghost while sliding. */}
       <div className="flex flex-col items-center gap-1.5 py-1" aria-label={`Brush size ${size}`}>
-        <span
-          className="rounded-full bg-foreground/70"
-          style={{ width: 4 + (size / 64) * 14, height: 4 + (size / 64) * 14 }}
-        />
         <Slider
           orientation="vertical"
           value={[size]}
