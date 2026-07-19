@@ -13,6 +13,8 @@ export interface WetTips {
   crayon: Texture
   /** Soft chalky disc — dense center fading through grain to a dusty rim. */
   pastel: Texture
+  /** Dense smooth disc with a short, faintly grainy falloff — plush gouache/print edges. */
+  gouache: Texture
 }
 
 /** Smooth 2-octave value noise on a coarse random grid — gives blobby, organic edge raggedness
@@ -183,11 +185,43 @@ export function createPastelTip(size = 160): Texture {
   return Texture.from(canvas)
 }
 
+export function createGouacheTip(size = 160): Texture {
+  const canvas = document.createElement('canvas')
+  canvas.width = size
+  canvas.height = size
+  const ctx = canvas.getContext('2d')!
+  const img = ctx.createImageData(size, size)
+  const data = img.data
+  const r = size / 2
+  const noise = makeValueNoise(83)
+  const fine = makeValueNoise(89, 30)
+
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const dx = x - r
+      const dy = y - r
+      const dist = Math.sqrt(dx * dx + dy * dy) / r
+      const n = noise(x / size, y / size) - 0.5
+      const f = fine(x / size, y / size) - 0.5
+      // Solid to ~70% radius, then a short velvety falloff whose rim is gently roughed up by
+      // noise — soft but confident edges, not watercolor-ragged and not chalk-dusty.
+      const falloff = 1 - Math.min(1, Math.max(0, (dist + n * 0.08 + f * 0.05 - 0.7) / 0.24))
+      const interior = 0.96 + f * 0.08
+      const i = (y * size + x) * 4
+      data[i] = data[i + 1] = data[i + 2] = 255
+      data[i + 3] = Math.round(Math.min(1, Math.max(0, falloff * interior)) * 255)
+    }
+  }
+  ctx.putImageData(img, 0, 0)
+  return Texture.from(canvas)
+}
+
 export function createWetTips(): WetTips {
   return {
     sharp: createSharpTip(),
     splotch: createSplotchTip(),
     crayon: createCrayonTip(),
     pastel: createPastelTip(),
+    gouache: createGouacheTip(),
   }
 }

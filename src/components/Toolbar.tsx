@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import {
+  Brush,
   Circle,
   Download,
   Droplet,
@@ -10,6 +11,7 @@ import {
   Pencil,
   Loader2,
   Redo2,
+  Settings2,
   Sparkles,
   SlidersHorizontal,
   Trash2,
@@ -36,7 +38,10 @@ const WET_BRUSH_OPTIONS: { id: BrushId; label: string; icon: typeof Circle }[] =
 const CRAYON_BRUSH_OPTIONS: { id: BrushId; label: string; icon: typeof Circle }[] = [
   { id: 'crayon', label: 'Crayon', icon: Pencil },
   { id: 'pastel', label: 'Pastel', icon: Highlighter },
+  { id: 'gouache', label: 'Gouache', icon: Brush },
 ]
+
+const CRAYON_GROUP: BrushId[] = ['crayon', 'pastel', 'gouache']
 
 const WIGGLE_PATTERNS: { id: WigglePattern; label: string }[] = [
   { id: 'sine', label: 'Sine' },
@@ -50,7 +55,7 @@ const PAPER_BLURBS: Record<PaperId, string> = {
   rough: 'extra toothy',
 }
 
-type PanelId = 'color' | 'paper' | 'wiggle' | null
+type PanelId = 'color' | 'paper' | 'wiggle' | 'settings' | null
 
 interface ToolbarProps {
   brush: BrushId
@@ -63,6 +68,8 @@ interface ToolbarProps {
   onWiggleChange: (settings: Partial<WiggleSettings>) => void
   wetWiggle: boolean
   onWetWiggleChange: (on: boolean) => void
+  loopTime: number
+  onLoopTimeChange: (seconds: number) => void
   paper: PaperId
   onPaperChange: (paper: PaperId) => void
   canUndo: boolean
@@ -131,6 +138,8 @@ export function Toolbar({
   onWiggleChange,
   wetWiggle,
   onWetWiggleChange,
+  loopTime,
+  onLoopTimeChange,
   paper,
   onPaperChange,
   canUndo,
@@ -214,7 +223,7 @@ export function Toolbar({
             <Icon className="size-5" />
           </ToolButton>
         ))}
-        {(brush === 'crayon' || brush === 'pastel') && (
+        {CRAYON_GROUP.includes(brush) && (
           <ToolButton
             label={wetWiggle ? 'Wiggly edges: on' : 'Wiggly edges: off'}
             onClick={() => onWetWiggleChange(!wetWiggle)}
@@ -253,6 +262,10 @@ export function Toolbar({
 
       <ToolButton label="Paper" active={panel === 'paper'} onClick={() => togglePanel('paper')}>
         <Layers className="size-5" />
+      </ToolButton>
+
+      <ToolButton label="Settings" active={panel === 'settings'} onClick={() => togglePanel('settings')}>
+        <Settings2 className="size-5" />
       </ToolButton>
 
       <div className="my-1 h-px w-7 bg-black/10" />
@@ -323,6 +336,28 @@ export function Toolbar({
                 <span className="block text-[11px] text-muted-foreground">{PAPER_BLURBS[id]}</span>
               </button>
             ))}
+          </div>
+        </Flyout>
+      )}
+
+      {panel === 'settings' && (
+        <Flyout title="Settings">
+          <div className="flex w-52 flex-col gap-2">
+            <div className="flex items-center gap-2">
+              <span className="w-16 text-xs text-muted-foreground">Loop time</span>
+              <Slider
+                value={[loopTime]}
+                onValueChange={([value]) => onLoopTimeChange(value)}
+                min={1}
+                max={4}
+                step={0.5}
+              />
+              <span className="w-8 text-right text-xs tabular-nums text-muted-foreground">{loopTime}s</span>
+            </div>
+            <p className="text-[11px] leading-snug text-muted-foreground">
+              One full wiggle cycle — and the length of an exported GIF, which always loops
+              perfectly.
+            </p>
           </div>
         </Flyout>
       )}

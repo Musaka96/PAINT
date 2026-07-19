@@ -2,7 +2,7 @@ import type { DabJitter } from './stamping'
 import type { WashSettings } from './wash-filter'
 import type { WetTips } from './tips'
 
-export type WetBrushId = 'wetsharp' | 'wetround' | 'crayon' | 'pastel'
+export type WetBrushId = 'wetsharp' | 'wetround' | 'crayon' | 'pastel' | 'gouache'
 
 export interface WetBrushDef {
   id: WetBrushId
@@ -52,6 +52,18 @@ export const WET_BRUSHES: Record<WetBrushId, WetBrushDef> = {
     spacingFactor: 0.14,
     jitter: { size: 0.1, rotation: Math.PI, scatter: 0.03, alpha: 0.05 },
     wash: { opacity: 0.95, edgeGain: 0, granulation: 0.95, mode: 1 },
+    blend: 'normal',
+  },
+  /** Flat mid-century-print paint: near-opaque velvety color with a fine ink speckle and
+   * plush edges (mode 2). Covers what's underneath — build flat shapes over each other the
+   * way cut-paper/riso illustrations do. */
+  gouache: {
+    id: 'gouache',
+    label: 'Gouache',
+    tip: 'gouache',
+    spacingFactor: 0.11,
+    jitter: { size: 0.05, rotation: Math.PI, scatter: 0.015, alpha: 0 },
+    wash: { opacity: 0.96, edgeGain: 0, granulation: 0.35, mode: 2 },
     blend: 'normal',
   },
   /** Soft pastel: chalkier and fuller than the crayon — gentler tooth-skip, dustier tip,

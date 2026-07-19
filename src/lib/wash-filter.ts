@@ -33,6 +33,7 @@ uniform float uGranulation;
 uniform float uPaperScale;
 uniform float uTime;
 uniform float uWiggle;
+uniform float uWiggleSpeed;
 uniform vec2 uPaperOffset;
 uniform float uMode;
 
@@ -57,9 +58,10 @@ void main()
         // boils instead of sliding rigidly.
         float phase = sin(canvasCoord.x * 0.045) + sin(canvasCoord.y * 0.052)
             + sin((canvasCoord.x + canvasCoord.y) * 0.021);
-        // Orbit speed is exactly 2*PI rad/s: one full circle per second, so the animation has
-        // a precise 1s period — GIF export renders t in [0,1) and loops seamlessly.
-        float angle = uTime * 6.2831853 + phase * 2.4;
+        // Orbit speed is exactly 2*PI / loop-time: one full circle per loop, so the animation's
+        // period matches the configured loop exactly — GIF export renders t in [0, loop) and
+        // loops seamlessly.
+        float angle = uTime * uWiggleSpeed + phase * 2.4;
         uv += vec2(cos(angle), sin(angle)) * uWiggle * uInputSize.zw;
     }
 
@@ -81,7 +83,17 @@ void main()
     float edge = smoothstep(0.05, 0.4, a) * (1.0 - smoothstep(0.5, 0.92, a));
 
     float density;
-    if (uMode > 0.5) {
+    if (uMode > 1.5) {
+        // Gouache / print: flat, velvety, near-opaque color with a fine ink speckle — the
+        // screen-print look. The speckle is the paper texture resampled at a much higher
+        // frequency, so it reads as print grain rather than paper tooth; the softer coverage
+        // ramp gives plush, slightly fuzzy edges instead of watercolor's hard silhouette.
+        float speck = texture(uPaperTexture, canvasCoord * uPaperScale * 6.7).r;
+        float sn = clamp((0.972 - speck) * 16.0, -1.0, 1.0);
+        float cover = smoothstep(0.06, 0.85, a);
+        density = uOpacity * cover * (1.0 + uGranulation * sn * 0.6);
+        density = clamp(density, 0.0, 1.0);
+    } else if (uMode > 0.5) {
         // Crayon: the inverse physics of watercolor. Wax catches on the RAISED tooth (negative
         // grain) and skips the valleys, so coverage keys on -grain; the smoothstep keeps the
         // deposits chunky rather than gradient-y, and the second curve hardens the result into
@@ -112,10 +124,14 @@ export interface WashSettings {
   wiggle?: number
   /** Animation clock in seconds — only meaningful when wiggle > 0. */
   time?: number
+  /** Orbit angular speed in rad/s. Keep at 2π/loopTime so the animation period equals the
+   * configured loop and GIF exports close seamlessly. */
+  wiggleSpeed?: number
   /** Canvas-space origin of the filtered frame, for stroke-local offscreen textures. */
   paperOffset?: { x: number; y: number }
-  /** 0 = watercolor wash (default), 1 = crayon (wax catching the raised tooth). */
-  mode?: 0 | 1
+  /** 0 = watercolor wash (default), 1 = crayon (wax catching the raised tooth),
+   * 2 = gouache/print (flat velvety coverage with fine ink speckle). */
+  mode?: 0 | 1 | 2
 }
 
 export class WashFilter extends Filter {
@@ -130,6 +146,7 @@ export class WashFilter extends Filter {
       uPaperScale: { value: 1 / paperTileSize, type: 'f32' },
       uTime: { value: 0, type: 'f32' },
       uWiggle: { value: 0, type: 'f32' },
+      uWiggleSpeed: { value: Math.PI * 2, type: 'f32' },
       uPaperOffset: { value: new Float32Array([0, 0]), type: 'vec2<f32>' },
       uMode: { value: 0, type: 'f32' },
     })
@@ -159,6 +176,7 @@ export class WashFilter extends Filter {
       uGranulation: number
       uTime: number
       uWiggle: number
+      uWiggleSpeed: number
       uPaperOffset: Float32Array
       uMode: number
     }
@@ -171,6 +189,7 @@ export class WashFilter extends Filter {
     uniforms.uGranulation = settings.granulation
     uniforms.uTime = settings.time ?? 0
     uniforms.uWiggle = settings.wiggle ?? 0
+    uniforms.uWiggleSpeed = settings.wiggleSpeed ?? Math.PI * 2
     uniforms.uPaperOffset[0] = settings.paperOffset?.x ?? 0
     uniforms.uPaperOffset[1] = settings.paperOffset?.y ?? 0
     uniforms.uMode = settings.mode ?? 0

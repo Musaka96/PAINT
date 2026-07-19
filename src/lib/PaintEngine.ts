@@ -96,6 +96,9 @@ export class PaintEngine {
   private size = 18
   private wiggle: WiggleSettings = { ...DEFAULT_WIGGLE }
   private wetWiggle = false
+  /** Loop period in seconds (1-4): the wet-edge orbit completes exactly one circle per loop,
+   * and GIF exports run exactly this long — so they always close seamlessly. */
+  private loopTime = 1
 
   private onHistoryChange?: (canUndo: boolean, canRedo: boolean) => void
 
@@ -186,6 +189,10 @@ export class PaintEngine {
 
   setWetWiggle(on: boolean) {
     this.wetWiggle = on
+  }
+
+  setLoopTime(seconds: number) {
+    this.loopTime = Math.min(4, Math.max(1, seconds))
   }
 
   setPaper(id: PaperId) {
@@ -360,6 +367,26 @@ export class PaintEngine {
     this.emitHistory()
   }
 
+  /** Snapshot of the committed strokes — pair with loadStrokes() to carry a drawing across an
+   * engine recreation (canvas resize). Strokes are pure data; everything rebakes from them. */
+  getStrokes(): Stroke[] {
+    return this.strokes.map((stroke) => ({ ...stroke, points: [...stroke.points] }))
+  }
+
+  /** Replays a stroke snapshot into this (fresh) engine: rebakes static strokes, revives
+   * wobble/wiggle entries. Content outside the new canvas simply crops away; undo history
+   * survives, redo doesn't. */
+  loadStrokes(strokes: Stroke[]) {
+    this.strokes = strokes.map((stroke) => ({ ...stroke, points: [...stroke.points] }))
+    this.redoStack = []
+    this.rebuildBaked()
+    for (const stroke of this.strokes) {
+      if (isWetBrush(stroke.brush) && stroke.wetWiggle) this.addWetWiggleStroke(stroke)
+      // wobble strokes need nothing: tickWiggle drives them straight from `strokes`
+    }
+    this.emitHistory()
+  }
+
   async exportPNG(): Promise<string> {
     // The picture is split across a baked texture and a live wiggle layer — composite the
     // whole stage into a throwaway texture so the export reflects both.
@@ -389,7 +416,7 @@ export class PaintEngine {
    * for the export — a nudge of at most π/duration, barely visible, in exchange for frame N
    * landing exactly on frame 0. Static content just rides along.
    */
-  async exportGIF(duration = 1, fps = 20): Promise<Blob> {
+  async exportGIF(duration = this.loopTime, fps = 20): Promise<Blob> {
     if (this.currentStroke) throw new Error('Finish the stroke before exporting')
     this.exporting = true
     // Near-full-size output: GIF encoding is CPU-bound in pixel count, but at ~1000px the
@@ -464,8 +491,7 @@ export class PaintEngine {
     // paper textures, only the active one is).
     this.silhouetteTexture.destroy(true)
     this.washFilter.destroy()
-    this.wetTips.sharp.destroy(true)
-    this.wetTips.splotch.destroy(true)
+    for (const tip of Object.values(this.wetTips)) tip.destroy(true)
     for (const texture of Object.values(this.paperTextures)) texture.destroy(true)
     this.textures.soft.destroy(true)
     this.textures.rough.destroy(true)
@@ -531,6 +557,7 @@ export class PaintEngine {
       ...def.wash,
       time: performance.now() / 1000,
       wiggle: stroke.wetWiggle ? WET_WIGGLE_PX : 0,
+      wiggleSpeed: (Math.PI * 2) / this.loopTime,
     })
     washInput.filters = [this.washFilter]
     this.app.renderer.render({ container: washInput, target: this.previewTexture, clear: true })
@@ -723,6 +750,7 @@ export class PaintEngine {
       ...def.wash,
       time,
       wiggle: WET_WIGGLE_PX,
+      wiggleSpeed: (Math.PI * 2) / this.loopTime,
       paperOffset: entry.origin,
     })
     this.app.renderer.render({ container: entry.washInput, target: entry.wash, clear: true })
