@@ -393,10 +393,10 @@ export class PaintEngine {
   async exportGIF(duration = 1, fps = 20): Promise<Blob> {
     if (this.currentStroke) throw new Error('Finish the stroke before exporting')
     this.exporting = true
-    // GIF encoding (palette mapping + LZW) is CPU-bound and scales with pixel count — a
-    // full-viewport canvas takes 10s+ per second of animation. Cap the long side at 480px
-    // (the classic share-size); the render just happens at a fractional resolution.
-    const scale = Math.min(1, 480 / Math.max(this.width, this.height))
+    // Near-full-size output: GIF encoding is CPU-bound in pixel count, but at ~1000px the
+    // whole 20-frame encode is a couple of seconds — the 480px cap this started with was
+    // compensating for background-tab timer throttling, not real encode cost.
+    const scale = Math.min(1, 1000 / Math.max(this.width, this.height))
     const composite = RenderTexture.create({ width: this.width, height: this.height, resolution: scale })
     const cursorWasVisible = this.cursorLayer.visible
     this.cursorLayer.visible = false
@@ -428,11 +428,10 @@ export class PaintEngine {
         const { pixels, width, height } = this.app.renderer.extract.pixels(composite)
         // One palette for every frame: the scene barely changes between frames, and a shared
         // palette avoids color flicker while skipping the slowest step on all but frame 0.
-        // rgb444 keys: the fractal paper produces a huge number of unique colors, and with
-        // finer key formats gifenc's per-pixel lookup cache thrashes (measured 12s+ per export);
-        // 4096 buckets make the cache actually cache. 12-bit key precision is plenty for GIF.
-        if (!palette) palette = quantize(pixels, 256, { format: 'rgb444' })
-        gif.writeFrame(applyPalette(pixels, palette, 'rgb444'), width, height, {
+        // rgb565 keys (not rgb444): 12-bit keys posterize the subtle paper tones into bands
+        // that shimmer as the wet edges animate — visible as strobing and off colors.
+        if (!palette) palette = quantize(pixels, 256, { format: 'rgb565' })
+        gif.writeFrame(applyPalette(pixels, palette, 'rgb565'), width, height, {
           palette,
           delay,
           repeat: 0, // loop forever
