@@ -12,6 +12,7 @@ import {
   Undo2,
   Waves,
 } from 'lucide-react'
+import { ColorPicker } from '@/components/ColorPicker'
 import { Slider } from '@/components/ui/slider'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -34,15 +35,13 @@ const WIGGLE_PATTERNS: { id: WigglePattern; label: string }[] = [
   { id: 'square', label: 'Square' },
 ]
 
-const SWATCHES = ['#1e1e2e', '#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#a855f7', '#8b5e3c']
-
 const PAPER_BLURBS: Record<PaperId, string> = {
   smooth: 'silky & even',
   coldpress: 'the classic',
   rough: 'extra toothy',
 }
 
-type PanelId = 'color' | 'size' | 'paper' | 'wiggle' | null
+type PanelId = 'color' | 'paper' | 'wiggle' | null
 
 interface ToolbarProps {
   brush: BrushId
@@ -204,12 +203,23 @@ export function Toolbar({
         />
       </ToolButton>
 
-      <ToolButton label={`Brush size (${size})`} active={panel === 'size'} onClick={() => togglePanel('size')}>
+      {/* Size lives right in the sidebar — no panel to open for the thing you adjust most. */}
+      <div className="flex flex-col items-center gap-1.5 py-1" aria-label={`Brush size ${size}`}>
         <span
-          className="rounded-full bg-current"
-          style={{ width: 6 + (size / 64) * 16, height: 6 + (size / 64) * 16 }}
+          className="rounded-full bg-foreground/70"
+          style={{ width: 4 + (size / 64) * 14, height: 4 + (size / 64) * 14 }}
         />
-      </ToolButton>
+        <Slider
+          orientation="vertical"
+          value={[size]}
+          onValueChange={([value]) => onSizeChange(value)}
+          min={2}
+          max={64}
+          step={1}
+          className="data-vertical:h-24 data-vertical:min-h-24"
+        />
+        <span className="text-[10px] tabular-nums text-muted-foreground">{size}</span>
+      </div>
 
       <ToolButton label="Paper" active={panel === 'paper'} onClick={() => togglePanel('paper')}>
         <Layers className="size-5" />
@@ -238,56 +248,10 @@ export function Toolbar({
 
       {panel === 'color' && (
         <Flyout title="Color">
-          <div className="grid grid-cols-3 gap-2">
-            {SWATCHES.map((swatch) => (
-              <button
-                key={swatch}
-                type="button"
-                aria-label={`Color ${swatch}`}
-                onClick={() => onColorChange(swatch)}
-                className={`size-9 rounded-full transition-transform hover:scale-110 ${
-                  swatch === color ? 'scale-110 ring-2 ring-violet-400 ring-offset-2' : 'ring-1 ring-black/10'
-                }`}
-                style={{ backgroundColor: swatch }}
-              />
-            ))}
-            <label
-              aria-label="Custom color"
-              className="relative grid size-9 cursor-pointer place-items-center overflow-hidden rounded-full ring-1 ring-black/10 transition-transform hover:scale-110"
-              style={{ background: 'conic-gradient(#f87171, #fbbf24, #4ade80, #60a5fa, #c084fc, #f87171)' }}
-            >
-              <input
-                type="color"
-                value={color}
-                onChange={(e) => onColorChange(e.target.value)}
-                className="absolute inset-0 cursor-pointer opacity-0"
-              />
-            </label>
-          </div>
+          <ColorPicker color={color} onChange={onColorChange} />
           <p className="mt-3 text-center text-[11px] text-muted-foreground">
             psst — wet brushes can't paint white!
           </p>
-        </Flyout>
-      )}
-
-      {panel === 'size' && (
-        <Flyout title="Size">
-          <div className="flex flex-col items-center gap-3">
-            <span
-              className="rounded-full bg-foreground/80"
-              style={{ width: Math.max(4, size / 2), height: Math.max(4, size / 2) }}
-            />
-            <Slider
-              orientation="vertical"
-              value={[size]}
-              onValueChange={([value]) => onSizeChange(value)}
-              min={2}
-              max={64}
-              step={1}
-              className="h-40"
-            />
-            <span className="text-xs tabular-nums text-muted-foreground">{size}px</span>
-          </div>
         </Flyout>
       )}
 
