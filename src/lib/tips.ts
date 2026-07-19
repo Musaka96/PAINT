@@ -9,6 +9,10 @@ export interface WetTips {
   sharp: Texture
   /** Ragged, splotchy disc with chunky edge noise and stray speckles — the "Round" wash tip. */
   splotch: Texture
+  /** Craggy hard-edged chunk, like the worn end of a wax crayon. */
+  crayon: Texture
+  /** Soft chalky disc — dense center fading through grain to a dusty rim. */
+  pastel: Texture
 }
 
 /** Smooth 2-octave value noise on a coarse random grid — gives blobby, organic edge raggedness
@@ -115,6 +119,75 @@ export function createSplotchTip(size = 160): Texture {
   return Texture.from(canvas)
 }
 
+export function createCrayonTip(size = 160): Texture {
+  const canvas = document.createElement('canvas')
+  canvas.width = size
+  canvas.height = size
+  const ctx = canvas.getContext('2d')!
+  const img = ctx.createImageData(size, size)
+  const data = img.data
+  const r = size / 2
+  const discR = 0.82
+  const noise = makeValueNoise(61)
+  const fine = makeValueNoise(67, 26)
+
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const dx = x - r
+      const dy = y - r
+      const dist = Math.sqrt(dx * dx + dy * dy) / r
+      const n = noise(x / size, y / size) - 0.5
+      const f = fine(x / size, y / size) - 0.5
+      // Craggy, broken rim — a worn wax nub, not a circle. The edge band is short (hard), the
+      // raggedness comes from big noise on the radius.
+      const edge = dist / discR + n * 0.34 + f * 0.1
+      const alpha = 1 - Math.min(1, Math.max(0, (edge - 0.8) / 0.12))
+      // Wax chunks: the interior isn't uniform — pressure varies across the nub.
+      const interior = 0.82 + n * 0.26 + f * 0.1
+      const i = (y * size + x) * 4
+      data[i] = data[i + 1] = data[i + 2] = 255
+      data[i + 3] = Math.round(Math.min(1, Math.max(0, alpha * interior)) * 255)
+    }
+  }
+  ctx.putImageData(img, 0, 0)
+  return Texture.from(canvas)
+}
+
+export function createPastelTip(size = 160): Texture {
+  const canvas = document.createElement('canvas')
+  canvas.width = size
+  canvas.height = size
+  const ctx = canvas.getContext('2d')!
+  const img = ctx.createImageData(size, size)
+  const data = img.data
+  const r = size / 2
+  const noise = makeValueNoise(71)
+  const fine = makeValueNoise(73, 28)
+
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const dx = x - r
+      const dy = y - r
+      const dist = Math.sqrt(dx * dx + dy * dy) / r
+      const n = noise(x / size, y / size) - 0.5
+      const f = fine(x / size, y / size) - 0.5
+      // Chalk: dense core, long dusty falloff, all of it grainy.
+      const falloff = 1 - Math.min(1, Math.max(0, (dist + n * 0.18 - 0.45) / 0.5))
+      const grainy = 0.72 + n * 0.3 + f * 0.26
+      const i = (y * size + x) * 4
+      data[i] = data[i + 1] = data[i + 2] = 255
+      data[i + 3] = Math.round(Math.min(1, Math.max(0, falloff * grainy)) * 255)
+    }
+  }
+  ctx.putImageData(img, 0, 0)
+  return Texture.from(canvas)
+}
+
 export function createWetTips(): WetTips {
-  return { sharp: createSharpTip(), splotch: createSplotchTip() }
+  return {
+    sharp: createSharpTip(),
+    splotch: createSplotchTip(),
+    crayon: createCrayonTip(),
+    pastel: createPastelTip(),
+  }
 }

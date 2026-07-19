@@ -34,6 +34,7 @@ uniform float uPaperScale;
 uniform float uTime;
 uniform float uWiggle;
 uniform vec2 uPaperOffset;
+uniform float uMode;
 
 // highp to match the default filter vertex shader's declarations — differing precisions on the
 // same uniform across stages is a link error on some GL drivers.
@@ -79,9 +80,21 @@ void main()
     // The boundary zone: high at partial silhouette alpha, zero deep inside the stroke.
     float edge = smoothstep(0.05, 0.4, a) * (1.0 - smoothstep(0.5, 0.92, a));
 
-    float density = uOpacity * body * (1.0 + uEdgeGain * edge);
-    density *= 1.0 + uGranulation * grain;
-    density = clamp(density, 0.0, 0.97);
+    float density;
+    if (uMode > 0.5) {
+        // Crayon: the inverse physics of watercolor. Wax catches on the RAISED tooth (negative
+        // grain) and skips the valleys, so coverage keys on -grain; the smoothstep keeps the
+        // deposits chunky rather than gradient-y, and the second curve hardens the result into
+        // wax (full-strength or absent, little in between).
+        float toothCatch = smoothstep(0.32, 0.68, 0.5 - 0.5 * grain);
+        float cover = body * mix(1.0, toothCatch, uGranulation);
+        cover *= smoothstep(0.04, 0.35, cover);
+        density = clamp(uOpacity * cover, 0.0, 1.0);
+    } else {
+        density = uOpacity * body * (1.0 + uEdgeGain * edge);
+        density *= 1.0 + uGranulation * grain;
+        density = clamp(density, 0.0, 0.97);
+    }
 
     finalColor = vec4(uColor * density, density);
 }
@@ -101,6 +114,8 @@ export interface WashSettings {
   time?: number
   /** Canvas-space origin of the filtered frame, for stroke-local offscreen textures. */
   paperOffset?: { x: number; y: number }
+  /** 0 = watercolor wash (default), 1 = crayon (wax catching the raised tooth). */
+  mode?: 0 | 1
 }
 
 export class WashFilter extends Filter {
@@ -116,6 +131,7 @@ export class WashFilter extends Filter {
       uTime: { value: 0, type: 'f32' },
       uWiggle: { value: 0, type: 'f32' },
       uPaperOffset: { value: new Float32Array([0, 0]), type: 'vec2<f32>' },
+      uMode: { value: 0, type: 'f32' },
     })
 
     super({
@@ -144,6 +160,7 @@ export class WashFilter extends Filter {
       uTime: number
       uWiggle: number
       uPaperOffset: Float32Array
+      uMode: number
     }
     const [r, g, b] = new Color(settings.color).toArray()
     uniforms.uColor[0] = r
@@ -156,6 +173,7 @@ export class WashFilter extends Filter {
     uniforms.uWiggle = settings.wiggle ?? 0
     uniforms.uPaperOffset[0] = settings.paperOffset?.x ?? 0
     uniforms.uPaperOffset[1] = settings.paperOffset?.y ?? 0
+    uniforms.uMode = settings.mode ?? 0
     this.washUniforms.update()
   }
 

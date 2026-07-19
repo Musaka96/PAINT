@@ -5,7 +5,9 @@ import {
   Droplet,
   Droplets,
   Film,
+  Highlighter,
   Layers,
+  Pencil,
   Loader2,
   Redo2,
   Sparkles,
@@ -29,6 +31,11 @@ const INK_BRUSHES: { id: BrushId; label: string; icon: typeof Circle }[] = [
 const WET_BRUSH_OPTIONS: { id: BrushId; label: string; icon: typeof Circle }[] = [
   { id: 'wetsharp', label: 'Wet Sharp', icon: Droplet },
   { id: 'wetround', label: 'Wet Round', icon: Droplets },
+]
+
+const CRAYON_BRUSH_OPTIONS: { id: BrushId; label: string; icon: typeof Circle }[] = [
+  { id: 'crayon', label: 'Crayon', icon: Pencil },
+  { id: 'pastel', label: 'Pastel', icon: Highlighter },
 ]
 
 const WIGGLE_PATTERNS: { id: WigglePattern; label: string }[] = [
@@ -193,6 +200,26 @@ export function Toolbar({
             onClick={() => onWetWiggleChange(!wetWiggle)}
             className={
               wetWiggle ? 'bg-sky-200/80 text-sky-700 shadow-inner animate-pulse' : 'text-sky-600/60'
+            }
+          >
+            <Waves className="size-5" />
+          </ToolButton>
+        )}
+      </div>
+
+      {/* Crayons in their own warm little box. */}
+      <div className="mt-1 flex flex-col items-center gap-1 rounded-3xl bg-amber-100/60 p-1">
+        {CRAYON_BRUSH_OPTIONS.map(({ id, label, icon: Icon }) => (
+          <ToolButton key={id} label={label} active={brush === id} onClick={() => onBrushChange(id)}>
+            <Icon className="size-5" />
+          </ToolButton>
+        ))}
+        {(brush === 'crayon' || brush === 'pastel') && (
+          <ToolButton
+            label={wetWiggle ? 'Wiggly edges: on' : 'Wiggly edges: off'}
+            onClick={() => onWetWiggleChange(!wetWiggle)}
+            className={
+              wetWiggle ? 'bg-amber-200/80 text-amber-700 shadow-inner animate-pulse' : 'text-amber-600/60'
             }
           >
             <Waves className="size-5" />

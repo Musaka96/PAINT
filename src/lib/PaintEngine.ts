@@ -281,12 +281,11 @@ export class PaintEngine {
       this.wetStampedCount = 0
       this.app.renderer.render({ container: new Container(), target: this.silhouetteTexture, clear: true })
     }
-    // Wet strokes bake with multiply, so the live preview must composite the same way —
-    // otherwise a glaze dragged across existing paint shows as an opaque overlay while the
-    // pointer is down and visibly snaps darker on release. Round strokes bake with normal
-    // blending, so their preview stays normal. (Transparent preview pixels are no-ops under
-    // both modes.)
-    this.previewSprite.blendMode = isWetBrush(this.brushId) ? 'multiply' : 'normal'
+    // The live preview must composite exactly the way the stroke will bake — otherwise paint
+    // dragged across existing strokes visibly snaps at pointer-up. Watery brushes multiply
+    // (glaze), crayons and round bake with normal blending (cover). (Transparent preview
+    // pixels are no-ops under both modes.)
+    this.previewSprite.blendMode = isWetBrush(this.brushId) ? WET_BRUSHES[this.brushId].blend : 'normal'
     this.updatePreview()
     this.emitHistory()
   }
@@ -638,7 +637,7 @@ export class PaintEngine {
     washInput.destroy({ children: true })
 
     const stamp = new Sprite(this.previewTexture)
-    stamp.blendMode = 'multiply'
+    stamp.blendMode = def.blend
     // The stamp must be a CHILD of the rendered root: the root container of an explicit
     // render() doesn't get its own blend state applied (this, not filters, is why earlier
     // attempts at multiply-on-the-wrapper silently baked with normal blending).
@@ -707,7 +706,7 @@ export class PaintEngine {
 
     const sprite = new Sprite(wash)
     sprite.position.set(origin.x, origin.y)
-    sprite.blendMode = 'multiply'
+    sprite.blendMode = def.blend
     this.wetWiggleLayer.addChild(sprite)
 
     this.wetWiggleStrokes.set(stroke.id, { stroke, origin, silhouette, wash, washInput, sprite })
