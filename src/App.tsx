@@ -12,38 +12,38 @@ const SIDEBAR_SPACE = 92
  * directions, kept very faint so the artwork stays the loudest thing on screen. */
 const ANT_TILE_SVG = `
 <svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'>
-  <g fill='none' stroke='#8a7d94' stroke-opacity='0.28' stroke-width='1.3' stroke-linecap='round'>
+  <g fill='none' stroke='#8a7d94' stroke-opacity='0.4' stroke-width='1.3' stroke-linecap='round'>
     <g transform='translate(34,38) rotate(-24)'>
-      <ellipse cx='0' cy='0' rx='4.4' ry='3.1' fill='#8a7d94' fill-opacity='0.28' stroke='none'/>
-      <ellipse cx='6.6' cy='-0.8' rx='2.5' ry='2' fill='#8a7d94' fill-opacity='0.28' stroke='none'/>
-      <circle cx='11.4' cy='-1.6' r='2.3' fill='#8a7d94' fill-opacity='0.28' stroke='none'/>
+      <ellipse cx='0' cy='0' rx='4.4' ry='3.1' fill='#8a7d94' fill-opacity='0.4' stroke='none'/>
+      <ellipse cx='6.6' cy='-0.8' rx='2.5' ry='2' fill='#8a7d94' fill-opacity='0.4' stroke='none'/>
+      <circle cx='11.4' cy='-1.6' r='2.3' fill='#8a7d94' fill-opacity='0.4' stroke='none'/>
       <path d='M5 -2.5 L2.5 -7 M6.8 -2.6 L6.6 -7.6 M8.4 -2.4 L10.8 -6.8'/>
       <path d='M5 1 L2.6 5.4 M6.8 1 L6.8 5.8 M8.4 0.8 L11 5'/>
       <path d='M12.6 -3.4 Q14 -6 16 -6.6 M13.4 -2.2 Q15.6 -3 17.2 -2.4'/>
     </g>
     <g transform='translate(118,110) rotate(142)'>
-      <ellipse cx='0' cy='0' rx='4.4' ry='3.1' fill='#8a7d94' fill-opacity='0.28' stroke='none'/>
-      <ellipse cx='6.6' cy='-0.8' rx='2.5' ry='2' fill='#8a7d94' fill-opacity='0.28' stroke='none'/>
-      <circle cx='11.4' cy='-1.6' r='2.3' fill='#8a7d94' fill-opacity='0.28' stroke='none'/>
+      <ellipse cx='0' cy='0' rx='4.4' ry='3.1' fill='#8a7d94' fill-opacity='0.4' stroke='none'/>
+      <ellipse cx='6.6' cy='-0.8' rx='2.5' ry='2' fill='#8a7d94' fill-opacity='0.4' stroke='none'/>
+      <circle cx='11.4' cy='-1.6' r='2.3' fill='#8a7d94' fill-opacity='0.4' stroke='none'/>
       <path d='M5 -2.5 L2.5 -7 M6.8 -2.6 L6.6 -7.6 M8.4 -2.4 L10.8 -6.8'/>
       <path d='M5 1 L2.6 5.4 M6.8 1 L6.8 5.8 M8.4 0.8 L11 5'/>
       <path d='M12.6 -3.4 Q14 -6 16 -6.6 M13.4 -2.2 Q15.6 -3 17.2 -2.4'/>
     </g>
     <g transform='translate(120,32) rotate(65)'>
-      <ellipse cx='0' cy='0' rx='4.4' ry='3.1' fill='#8a7d94' fill-opacity='0.2' stroke='none'/>
-      <ellipse cx='6.6' cy='-0.8' rx='2.5' ry='2' fill='#8a7d94' fill-opacity='0.2' stroke='none'/>
-      <circle cx='11.4' cy='-1.6' r='2.3' fill='#8a7d94' fill-opacity='0.2' stroke='none'/>
-      <path d='M5 -2.5 L2.5 -7 M6.8 -2.6 L6.6 -7.6 M8.4 -2.4 L10.8 -6.8' stroke-opacity='0.2'/>
-      <path d='M5 1 L2.6 5.4 M6.8 1 L6.8 5.8 M8.4 0.8 L11 5' stroke-opacity='0.2'/>
-      <path d='M12.6 -3.4 Q14 -6 16 -6.6 M13.4 -2.2 Q15.6 -3 17.2 -2.4' stroke-opacity='0.2'/>
+      <ellipse cx='0' cy='0' rx='4.4' ry='3.1' fill='#8a7d94' fill-opacity='0.3' stroke='none'/>
+      <ellipse cx='6.6' cy='-0.8' rx='2.5' ry='2' fill='#8a7d94' fill-opacity='0.3' stroke='none'/>
+      <circle cx='11.4' cy='-1.6' r='2.3' fill='#8a7d94' fill-opacity='0.3' stroke='none'/>
+      <path d='M5 -2.5 L2.5 -7 M6.8 -2.6 L6.6 -7.6 M8.4 -2.4 L10.8 -6.8' stroke-opacity='0.3'/>
+      <path d='M5 1 L2.6 5.4 M6.8 1 L6.8 5.8 M8.4 0.8 L11 5' stroke-opacity='0.3'/>
+      <path d='M12.6 -3.4 Q14 -6 16 -6.6 M13.4 -2.2 Q15.6 -3 17.2 -2.4' stroke-opacity='0.3'/>
     </g>
     <g transform='translate(40,124) rotate(-105)'>
-      <ellipse cx='0' cy='0' rx='4.4' ry='3.1' fill='#8a7d94' fill-opacity='0.2' stroke='none'/>
-      <ellipse cx='6.6' cy='-0.8' rx='2.5' ry='2' fill='#8a7d94' fill-opacity='0.2' stroke='none'/>
-      <circle cx='11.4' cy='-1.6' r='2.3' fill='#8a7d94' fill-opacity='0.2' stroke='none'/>
-      <path d='M5 -2.5 L2.5 -7 M6.8 -2.6 L6.6 -7.6 M8.4 -2.4 L10.8 -6.8' stroke-opacity='0.2'/>
-      <path d='M5 1 L2.6 5.4 M6.8 1 L6.8 5.8 M8.4 0.8 L11 5' stroke-opacity='0.2'/>
-      <path d='M12.6 -3.4 Q14 -6 16 -6.6 M13.4 -2.2 Q15.6 -3 17.2 -2.4' stroke-opacity='0.2'/>
+      <ellipse cx='0' cy='0' rx='4.4' ry='3.1' fill='#8a7d94' fill-opacity='0.3' stroke='none'/>
+      <ellipse cx='6.6' cy='-0.8' rx='2.5' ry='2' fill='#8a7d94' fill-opacity='0.3' stroke='none'/>
+      <circle cx='11.4' cy='-1.6' r='2.3' fill='#8a7d94' fill-opacity='0.3' stroke='none'/>
+      <path d='M5 -2.5 L2.5 -7 M6.8 -2.6 L6.6 -7.6 M8.4 -2.4 L10.8 -6.8' stroke-opacity='0.3'/>
+      <path d='M5 1 L2.6 5.4 M6.8 1 L6.8 5.8 M8.4 0.8 L11 5' stroke-opacity='0.3'/>
+      <path d='M12.6 -3.4 Q14 -6 16 -6.6 M13.4 -2.2 Q15.6 -3 17.2 -2.4' stroke-opacity='0.3'/>
     </g>
   </g>
 </svg>`
@@ -57,8 +57,8 @@ function App() {
   // full size (recreating costs nothing); once anything is drawn, the size freezes and the
   // canvas only CSS-scales down to fit (pointer coords map through the live bounding rect).
   const [canvasSize, setCanvasSize] = useState(() => ({
-    width: Math.max(480, window.innerWidth - SIDEBAR_SPACE - 32),
-    height: Math.max(360, window.innerHeight - 32),
+    width: Math.max(480, Math.round((window.innerWidth - SIDEBAR_SPACE - 32) * 0.85)),
+    height: Math.max(360, Math.round((window.innerHeight - 32) * 0.85)),
   }))
   const [displayScale, setDisplayScale] = useState(1)
   /** Dashed outline shown while dragging a resize handle; committed on release. */
@@ -86,8 +86,12 @@ function App() {
     const compute = () => {
       const availWidth = Math.max(480, window.innerWidth - SIDEBAR_SPACE - 32)
       const availHeight = Math.max(360, window.innerHeight - 32)
-      if (isBlank && !userSizedRef.current && (availWidth !== canvasSize.width || availHeight !== canvasSize.height)) {
-        setCanvasSize({ width: availWidth, height: availHeight })
+      // The canvas is a sheet on the ant-doodle desk, not wall-to-wall glass — default to 85%
+      // of the room so the wallpaper frames the drawing. (Hand-resizing can still go bigger.)
+      const fitWidth = Math.max(480, Math.round(availWidth * 0.85))
+      const fitHeight = Math.max(360, Math.round(availHeight * 0.85))
+      if (isBlank && !userSizedRef.current && (fitWidth !== canvasSize.width || fitHeight !== canvasSize.height)) {
+        setCanvasSize({ width: fitWidth, height: fitHeight })
         setDisplayScale(1)
         return
       }
