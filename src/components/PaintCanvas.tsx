@@ -1,7 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
-import { PaintEngine } from '@/lib/PaintEngine'
+import { PaintEngine, type LayerInfo, type PictureSnapshot } from '@/lib/PaintEngine'
 import { BrushSounds } from '@/lib/sounds'
-import type { BrushId, Stroke, WiggleSettings } from '@/lib/brush-types'
+import type { BrushId, WiggleSettings } from '@/lib/brush-types'
 import type { PaperId } from '@/lib/papers'
 
 export interface PaintCanvasHandle {
@@ -10,6 +10,12 @@ export interface PaintCanvasHandle {
   clear: () => void
   exportPNG: () => Promise<string>
   exportGIF: () => Promise<Blob>
+  addLayer: () => void
+  deleteLayer: (id: string) => void
+  selectLayer: (id: string) => void
+  moveLayer: (id: string, direction: 'up' | 'down') => void
+  setLayerVisible: (id: string, visible: boolean) => void
+  setLayerOpacity: (id: string, opacity: number) => void
 }
 
 interface PaintCanvasProps {
@@ -28,10 +34,11 @@ interface PaintCanvasProps {
    * unaffected — they already map through the live bounding rect. */
   displayScale?: number
   onHistoryChange: (canUndo: boolean, canRedo: boolean) => void
+  onLayersChange: (layers: LayerInfo[]) => void
 }
 
 export const PaintCanvas = forwardRef<PaintCanvasHandle, PaintCanvasProps>(function PaintCanvas(
-  { brush, color, size, wiggle, wetWiggle, loopTime, sound, paper, width, height, displayScale = 1, onHistoryChange },
+  { brush, color, size, wiggle, wetWiggle, loopTime, sound, paper, width, height, displayScale = 1, onHistoryChange, onLayersChange },
   ref,
 ) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -43,9 +50,9 @@ export const PaintCanvas = forwardRef<PaintCanvasHandle, PaintCanvasProps>(funct
    * (size-keyed element), so a changed node means "recreate"; the same node means a StrictMode
    * remount and the engine is reused. */
   const engineCanvasRef = useRef<HTMLCanvasElement | null>(null)
-  /** Strokes rescued from an engine about to be destroyed by a canvas resize — replayed into
-   * the replacement engine so resizing never eats the drawing. */
-  const carriedStrokesRef = useRef<Stroke[] | null>(null)
+  /** The whole picture (all layers) rescued from an engine about to be destroyed by a canvas
+   * resize — replayed into the replacement engine so resizing never eats the drawing. */
+  const carriedSnapshotRef = useRef<PictureSnapshot | null>(null)
 
   /** One sound engine for the component's lifetime (it survives canvas resizes). The pointer
    * handlers live in a [width,height] effect, so they read brush/sound through refs to stay
@@ -66,6 +73,12 @@ export const PaintCanvas = forwardRef<PaintCanvasHandle, PaintCanvasProps>(funct
     clear: () => engineRef.current?.clear(),
     exportPNG: () => engineRef.current?.exportPNG() ?? Promise.reject(new Error('Canvas not ready yet')),
     exportGIF: () => engineRef.current?.exportGIF() ?? Promise.reject(new Error('Canvas not ready yet')),
+    addLayer: () => engineRef.current?.addLayer(),
+    deleteLayer: (id) => engineRef.current?.deleteLayer(id),
+    selectLayer: (id) => engineRef.current?.selectLayer(id),
+    moveLayer: (id, direction) => engineRef.current?.moveLayer(id, direction),
+    setLayerVisible: (id, visible) => engineRef.current?.setLayerVisible(id, visible),
+    setLayerOpacity: (id, opacity) => engineRef.current?.setLayerOpacity(id, opacity),
   }))
 
   // StrictMode mounts this effect twice synchronously (mount -> cleanup -> mount). PixiJS can't have two
@@ -110,17 +123,18 @@ export const PaintCanvas = forwardRef<PaintCanvasHandle, PaintCanvasProps>(funct
       engine.setLoopTime(loopTime)
       engine.setPaper(paper)
       engine.setHistoryListener(onHistoryChange)
-      if (carriedStrokesRef.current?.length) {
-        engine.loadStrokes(carriedStrokesRef.current)
-        carriedStrokesRef.current = null
+      engine.setLayersListener(onLayersChange)
+      if (carriedSnapshotRef.current) {
+        engine.loadSnapshot(carriedSnapshotRef.current)
+        carriedSnapshotRef.current = null
       }
     })
 
     return () => {
-      // Rescue the drawing before the (possible) teardown — if this cleanup is a resize, the
-      // next effect run replays these strokes into the fresh engine.
-      const strokes = engineRef.current?.getStrokes()
-      if (strokes?.length) carriedStrokesRef.current = strokes
+      // Rescue the whole picture before the (possible) teardown — if this cleanup is a resize,
+      // the next effect run replays these layers into the fresh engine.
+      const snapshot = engineRef.current?.getSnapshot()
+      if (snapshot?.layers.some((l) => l.strokes.length > 0)) carriedSnapshotRef.current = snapshot
       destroyTimerRef.current = setTimeout(() => {
         enginePromiseRef.current?.then((engine) => engine.destroy())
         enginePromiseRef.current = null

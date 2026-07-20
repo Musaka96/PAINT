@@ -8,6 +8,7 @@ import {
   Film,
   Highlighter,
   Layers,
+  Notebook,
   Pencil,
   Loader2,
   Redo2,
@@ -21,10 +22,12 @@ import {
   Waves,
 } from 'lucide-react'
 import { ColorPicker } from '@/components/ColorPicker'
+import { LayersPanel } from '@/components/LayersPanel'
 import { Slider } from '@/components/ui/slider'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import type { BrushId, WigglePattern, WiggleSettings } from '@/lib/brush-types'
+import type { LayerInfo } from '@/lib/PaintEngine'
 import { PAPERS, type PaperId } from '@/lib/papers'
 
 const INK_BRUSHES: { id: BrushId; label: string; icon: typeof Circle }[] = [
@@ -57,7 +60,7 @@ const PAPER_BLURBS: Record<PaperId, string> = {
   rough: 'extra toothy',
 }
 
-type PanelId = 'color' | 'paper' | 'wiggle' | 'settings' | null
+type PanelId = 'color' | 'paper' | 'wiggle' | 'settings' | 'layers' | null
 
 interface ToolbarProps {
   brush: BrushId
@@ -76,6 +79,13 @@ interface ToolbarProps {
   onSoundChange: (on: boolean) => void
   paper: PaperId
   onPaperChange: (paper: PaperId) => void
+  layers: LayerInfo[]
+  onAddLayer: () => void
+  onDeleteLayer: (id: string) => void
+  onSelectLayer: (id: string) => void
+  onMoveLayer: (id: string, direction: 'up' | 'down') => void
+  onLayerVisible: (id: string, visible: boolean) => void
+  onLayerOpacity: (id: string, opacity: number) => void
   canUndo: boolean
   canRedo: boolean
   onUndo: () => void
@@ -122,10 +132,10 @@ function ToolButton({
   )
 }
 
-function Flyout({ title, children }: { title: string; children: React.ReactNode }) {
+function Flyout({ title, children }: { title?: string; children: React.ReactNode }) {
   return (
     <div className="absolute top-1/2 right-full mr-3 -translate-y-1/2 rounded-3xl border border-black/5 bg-white/90 p-4 shadow-xl backdrop-blur-md animate-in fade-in slide-in-from-right-2 duration-200">
-      <p className="mb-3 text-xs font-semibold tracking-wide text-muted-foreground uppercase">{title}</p>
+      {title && <p className="mb-3 text-xs font-semibold tracking-wide text-muted-foreground uppercase">{title}</p>}
       {children}
     </div>
   )
@@ -148,6 +158,13 @@ export function Toolbar({
   onSoundChange,
   paper,
   onPaperChange,
+  layers,
+  onAddLayer,
+  onDeleteLayer,
+  onSelectLayer,
+  onMoveLayer,
+  onLayerVisible,
+  onLayerOpacity,
   canUndo,
   canRedo,
   onUndo,
@@ -266,8 +283,12 @@ export function Toolbar({
         <span className="text-[10px] tabular-nums text-muted-foreground">{size}</span>
       </div>
 
-      <ToolButton label="Paper" active={panel === 'paper'} onClick={() => togglePanel('paper')}>
+      <ToolButton label="Layers" active={panel === 'layers'} onClick={() => togglePanel('layers')}>
         <Layers className="size-5" />
+      </ToolButton>
+
+      <ToolButton label="Paper" active={panel === 'paper'} onClick={() => togglePanel('paper')}>
+        <Notebook className="size-5" />
       </ToolButton>
 
       <ToolButton label="Settings" active={panel === 'settings'} onClick={() => togglePanel('settings')}>
@@ -328,6 +349,20 @@ export function Toolbar({
           <p className="mt-3 text-center text-[11px] text-muted-foreground">
             psst — wet brushes can't paint white!
           </p>
+        </Flyout>
+      )}
+
+      {panel === 'layers' && (
+        <Flyout title="">
+          <LayersPanel
+            layers={layers}
+            onAdd={onAddLayer}
+            onDelete={onDeleteLayer}
+            onSelect={onSelectLayer}
+            onMove={onMoveLayer}
+            onVisible={onLayerVisible}
+            onOpacity={onLayerOpacity}
+          />
         </Flyout>
       )}
 

@@ -10,6 +10,7 @@ import { computeDabs, stampDabs } from './stamping'
 import { WET_BRUSHES, isWetBrush } from './wet-brushes'
 import { WashFilter } from './wash-filter'
 import { hashSeed } from './random'
+import { PictureLayer, type WetWiggleEntry } from './PictureLayer'
 
 const BACKGROUND_COLOR = 0xffffff
 
@@ -21,70 +22,74 @@ const WET_TAIL_PX = 64
 /** Edge-orbit radius (px) for wet strokes with the wiggle toggle on. */
 const WET_WIGGLE_PX = 2.5
 
+/** What the UI needs to render the layer list — top layer first. */
+export interface LayerInfo {
+  id: string
+  name: string
+  visible: boolean
+  opacity: number
+  active: boolean
+}
+
+/** Serializable snapshot of the whole picture — carried across an engine recreation (resize). */
+export interface LayerSnapshot {
+  id: string
+  name: string
+  visible: boolean
+  opacity: number
+  strokes: Stroke[]
+}
+export interface PictureSnapshot {
+  layers: LayerSnapshot[]
+  activeLayerId: string
+}
+
 export class PaintEngine {
   readonly app: Application
   readonly width: number
   readonly height: number
 
-  /** Round/watercolor strokes are baked in once and left alone — cheap, and they never change. */
-  private paintedTexture: RenderTexture
   private textures: BrushTextures
 
-  /** Bottom layer: the sheet of paper. Paint layers multiply over it, so its texture shows
-   * through everywhere there's pigment — the paper is part of the picture, not just a backdrop. */
+  /** Bottom of the stack: the sheet of paper. Every layer multiplies over it. */
   private paperSprite: TilingSprite
   private paperTextures: Record<PaperId, Texture>
   private paperId: PaperId = DEFAULT_PAPER
 
-  /** Wiggly strokes keep rippling forever, so they stay as live display objects (one reused
-   * Graphics per stroke, cleared + redrawn in place every frame) instead of flattened pixels. */
-  private wiggleLayer = new Container()
-  private wiggleGraphics = new Map<string, Graphics>()
+  /** The layer stack, bottom-to-top (index 0 is the bottom layer). */
+  private layers: PictureLayer[] = []
+  private activeLayerId = ''
+  private layerCounter = 0
 
-  /** Topmost layer: the hover brush preview — a ghost of the tip that follows the pointer so
-   * you can see what you're about to put down. Rebuilt lazily when brush/color/size change,
-   * hidden while drawing and excluded from exports. */
+  /** Topmost layer: the hover brush preview — a ghost of the tip that follows the pointer.
+   * Rebuilt lazily when brush/color/size change, hidden while drawing and excluded from exports. */
   private cursorLayer = new Container()
   private cursorDirty = true
   private sizePreviewTimer: ReturnType<typeof setTimeout> | null = null
 
-  /** Live preview for the in-progress round/watercolor stroke only — wiggly strokes preview via
-   * wiggleLayer instead, since they're already drawn there whether committed or not.
-   * Rendered into a texture via an explicit renderer.render() call (same as baking), rather than
-   * added straight into the stage tree: a Container with blendMode + filtered children (as
-   * watercolor uses) composites correctly through an explicit render-to-texture call, but
-   * incorrectly (rendering black) when it's a permanent part of the auto-rendered stage tree. */
+  /** Live preview for the in-progress round/wet stroke — sits just above the active layer.
+   * Rendered into a texture via an explicit renderer.render() call (same as baking): a Container
+   * with blendMode + filtered children composites correctly through a render-to-texture call but
+   * renders black when it's a permanent part of the auto-rendered stage tree. */
   private previewTexture: RenderTexture
   private previewSprite: Sprite
 
-  /** Wet-brush pipeline: dabs are stamped into a shared full-canvas silhouette texture, and the
-   * wash filter turns that silhouette into pigment (wet edge, granulation, flat opacity). One
-   * filter instance is reused for every wet render; its uniforms are set per stroke. */
+  /** Wet-brush pipeline: dabs stamped into a shared full-canvas silhouette texture, then the wash
+   * filter turns that silhouette into pigment. One filter instance is reused everywhere. */
   private silhouetteTexture: RenderTexture
   private wetTips: WetTips
   private washFilter: WashFilter
   /** How many dabs of the in-progress wet stroke are already stamped into silhouetteTexture. */
   private wetStampedCount = 0
 
-  /** Wet strokes with the wiggle toggle stay alive instead of baking: each keeps its stamped
-   * silhouette in a stroke-sized texture (stamped once), and every frame one wash pass with an
-   * advancing clock re-renders it into its display texture — the edge orbits, nothing restamps. */
-  private wetWiggleLayer = new Container()
-  private wetWiggleStrokes = new Map<
-    string,
-    {
-      stroke: Stroke
-      origin: { x: number; y: number }
-      silhouette: RenderTexture
-      wash: RenderTexture
-      washInput: Container
-      sprite: Sprite
-    }
-  >()
-
-  private strokes: Stroke[] = []
-  private redoStack: Stroke[] = []
+  /** Global, chronological undo history — each entry remembers which layer its stroke lives on,
+   * so undo removes the most recent stroke anywhere and un-commits it from the right layer. */
+  private history: { layerId: string; stroke: Stroke }[] = []
+  private redoStack: { layerId: string; stroke: Stroke }[] = []
   private currentStroke: Stroke | null = null
+  /** Layer the in-progress stroke will commit to — captured at pointerDown so a mid-stroke layer
+   * switch (unusual, but possible via the panel) can't misfile it. */
+  private currentStrokeLayerId = ''
   /** Set on pointerMove, consumed once per ticker frame — coalesces preview renders. */
   private previewDirty = false
   /** True while a GIF export owns the animated layers — input is ignored so a stray stroke
@@ -96,18 +101,17 @@ export class PaintEngine {
   private size = 18
   private wiggle: WiggleSettings = { ...DEFAULT_WIGGLE }
   private wetWiggle = false
-  /** Loop period in seconds (1-4): the wet-edge orbit completes exactly one circle per loop,
-   * and GIF exports run exactly this long — so they always close seamlessly. */
+  /** Loop period in seconds (1-4): the wet-edge orbit completes exactly one circle per loop. */
   private loopTime = 1
 
   private onHistoryChange?: (canUndo: boolean, canRedo: boolean) => void
+  private onLayersChange?: (layers: LayerInfo[]) => void
 
   private constructor(app: Application, width: number, height: number) {
     this.app = app
     this.width = width
     this.height = height
 
-    this.paintedTexture = RenderTexture.create({ width, height, resolution: app.renderer.resolution })
     this.previewTexture = RenderTexture.create({ width, height, resolution: app.renderer.resolution })
     this.textures = { soft: createSoftTexture(), rough: createRoughTexture(), grain: createGrainTexture() }
 
@@ -118,25 +122,17 @@ export class PaintEngine {
     this.wetTips = createWetTips()
     this.washFilter = new WashFilter(this.paperTextures[this.paperId], PAPER_TILE_SIZE)
 
-    const paintedSprite = new Sprite(this.paintedTexture)
-    // The painted layer starts as flat white (multiply-neutral) and strokes multiply into it, so
-    // multiplying the whole layer over the paper leaves bare paper untouched and lets its grain
-    // show through the pigment — the same way real washes reveal the sheet's tooth.
-    paintedSprite.blendMode = 'multiply'
     this.previewSprite = new Sprite(this.previewTexture)
-    app.stage.addChild(this.paperSprite)
-    app.stage.addChild(paintedSprite)
-    app.stage.addChild(this.wetWiggleLayer)
-    app.stage.addChild(this.wiggleLayer)
-    app.stage.addChild(this.previewSprite)
     this.cursorLayer.visible = false
-    app.stage.addChild(this.cursorLayer)
 
-    this.clearTexture()
+    // Start with a single blank layer.
+    const first = this.createLayer()
+    this.layers.push(first)
+    this.activeLayerId = first.id
+    this.restack()
 
     app.ticker.add(() => {
-      // A live wiggle-on wet stroke animates even while the pointer holds still — its edge
-      // orbit advances with the clock, not with input.
+      // A live wiggle-on wet stroke animates even while the pointer holds still.
       if (this.currentStroke && isWetBrush(this.currentStroke.brush) && this.currentStroke.wetWiggle) {
         this.previewDirty = true
       }
@@ -163,9 +159,16 @@ export class PaintEngine {
     return new PaintEngine(app, width, height)
   }
 
+  // ---- listeners / settings -------------------------------------------------
+
   setHistoryListener(fn: (canUndo: boolean, canRedo: boolean) => void) {
     this.onHistoryChange = fn
     this.emitHistory()
+  }
+
+  setLayersListener(fn: (layers: LayerInfo[]) => void) {
+    this.onLayersChange = fn
+    this.emitLayers()
   }
 
   setBrush(id: BrushId) {
@@ -199,12 +202,124 @@ export class PaintEngine {
     if (id === this.paperId) return
     this.paperId = id
     this.paperSprite.texture = this.paperTextures[id]
-    // Wet-brush granulation samples the paper — rebake so existing strokes settle into the new sheet.
+    // Wet-brush granulation samples the paper — rebake every layer so strokes settle into it.
     this.washFilter.setPaper(this.paperTextures[id])
-    this.rebuildBaked()
+    for (const layer of this.layers) this.rebuildBaked(layer)
   }
 
-  /** Pointer is moving over the canvas without drawing — show the brush ghost there. */
+  // ---- layer management -----------------------------------------------------
+
+  private get active(): PictureLayer {
+    return this.layerById(this.activeLayerId) ?? this.layers[this.layers.length - 1]
+  }
+
+  private layerById(id: string): PictureLayer | undefined {
+    return this.layers.find((l) => l.id === id)
+  }
+
+  private createLayer(): PictureLayer {
+    this.layerCounter += 1
+    const layer = new PictureLayer(
+      `layer-${Date.now()}-${this.layerCounter}`,
+      `Layer ${this.layerCounter}`,
+      this.width,
+      this.height,
+      this.app.renderer.resolution,
+    )
+    this.clearTexture(layer)
+    return layer
+  }
+
+  /** Rebuilds the stage's child order: paper, layers bottom-to-top, the live preview just above
+   * the active layer, and the cursor ghost on top. */
+  private restack() {
+    const stage = this.app.stage
+    stage.removeChildren()
+    stage.addChild(this.paperSprite)
+    for (const layer of this.layers) {
+      stage.addChild(layer.root)
+      if (layer.id === this.activeLayerId) stage.addChild(this.previewSprite)
+    }
+    stage.addChild(this.cursorLayer)
+  }
+
+  addLayer() {
+    const layer = this.createLayer()
+    const activeIdx = this.layers.findIndex((l) => l.id === this.activeLayerId)
+    this.layers.splice(activeIdx + 1, 0, layer) // just above the active layer
+    this.activeLayerId = layer.id
+    this.restack()
+    this.emitLayers()
+  }
+
+  deleteLayer(id: string) {
+    if (this.layers.length <= 1) return // always keep one surface
+    const idx = this.layers.findIndex((l) => l.id === id)
+    if (idx < 0) return
+    const layer = this.layers[idx]
+    for (const wid of [...layer.wetWiggleStrokes.keys()]) this.destroyWetWiggleStroke(layer, wid)
+    layer.destroy()
+    this.layers.splice(idx, 1)
+    this.history = this.history.filter((h) => h.layerId !== id)
+    this.redoStack = this.redoStack.filter((h) => h.layerId !== id)
+    if (this.activeLayerId === id) {
+      this.activeLayerId = this.layers[Math.min(idx, this.layers.length - 1)].id
+    }
+    this.restack()
+    this.emitLayers()
+    this.emitHistory()
+  }
+
+  selectLayer(id: string) {
+    if (!this.layerById(id) || id === this.activeLayerId) return
+    this.activeLayerId = id
+    this.restack() // preview follows the active layer
+    this.emitLayers()
+  }
+
+  moveLayer(id: string, direction: 'up' | 'down') {
+    const idx = this.layers.findIndex((l) => l.id === id)
+    if (idx < 0) return
+    const target = direction === 'up' ? idx + 1 : idx - 1 // up = toward the top = higher index
+    if (target < 0 || target >= this.layers.length) return
+    ;[this.layers[idx], this.layers[target]] = [this.layers[target], this.layers[idx]]
+    this.restack()
+    this.emitLayers()
+  }
+
+  setLayerVisible(id: string, visible: boolean) {
+    const layer = this.layerById(id)
+    if (!layer) return
+    layer.visible = visible
+    layer.applyDisplay()
+    this.emitLayers()
+  }
+
+  setLayerOpacity(id: string, opacity: number) {
+    const layer = this.layerById(id)
+    if (!layer) return
+    layer.opacity = Math.min(1, Math.max(0, opacity))
+    layer.applyDisplay()
+    this.emitLayers()
+  }
+
+  renameLayer(id: string, name: string) {
+    const layer = this.layerById(id)
+    if (!layer) return
+    layer.name = name
+    this.emitLayers()
+  }
+
+  private emitLayers() {
+    // Top layer first for the panel (the stack is stored bottom-to-top).
+    const info: LayerInfo[] = this.layers
+      .map((l) => ({ id: l.id, name: l.name, visible: l.visible, opacity: l.opacity, active: l.id === this.activeLayerId }))
+      .reverse()
+    this.onLayersChange?.(info)
+  }
+
+  // ---- pointer / stroke lifecycle -------------------------------------------
+
   pointerHover(x: number, y: number) {
     if (this.currentStroke || this.exporting) return
     this.cancelSizePreview()
@@ -217,8 +332,6 @@ export class PaintEngine {
     this.cursorLayer.visible = false
   }
 
-  /** Flashes the brush ghost true-to-size in the middle of the canvas — feedback while
-   * dragging the size slider, where the pointer isn't over the canvas to show it in place. */
   previewSize() {
     if (this.currentStroke) return
     if (this.cursorDirty) this.rebuildCursor()
@@ -238,16 +351,13 @@ export class PaintEngine {
     }
   }
 
-  /** The ghost shows the actual footprint: wet brushes stamp their real (tinted, translucent)
-   * tip texture, the ink brushes show a ring — plus a two-tone outline so it reads on any
-   * color underneath. */
   private rebuildCursor() {
     this.cursorDirty = false
     for (const child of [...this.cursorLayer.children]) child.destroy({ children: true })
 
     const radius = this.size / 2
     if (isWetBrush(this.brushId)) {
-      const def = WET_BRUSHES[this.brushId as keyof typeof WET_BRUSHES]
+      const def = WET_BRUSHES[this.brushId]
       const tip = new Sprite(this.wetTips[def.tip])
       tip.anchor.set(0.5)
       tip.width = this.size
@@ -260,7 +370,6 @@ export class PaintEngine {
     ring.circle(0, 0, radius).stroke({ width: 2.5, color: 0xffffff, alpha: 0.65 })
     ring.circle(0, 0, radius).stroke({ width: 1.2, color: 0x1e1e2e, alpha: 0.65 })
     if (this.brushId === 'wobble') {
-      // A tiny sine squiggle inside the ring — this one draws wiggly lines, not dabs.
       const span = Math.max(radius * 0.7, 7)
       ring.moveTo(-span, 0)
       for (let i = -span; i <= span; i += 1) ring.lineTo(i, Math.sin((i / span) * Math.PI * 2) * span * 0.3)
@@ -275,6 +384,7 @@ export class PaintEngine {
     if (this.exporting) return
     this.cursorLayer.visible = false
     this.redoStack = []
+    this.currentStrokeLayerId = this.activeLayerId
     this.currentStroke = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       brush: this.brushId,
@@ -288,10 +398,6 @@ export class PaintEngine {
       this.wetStampedCount = 0
       this.app.renderer.render({ container: new Container(), target: this.silhouetteTexture, clear: true })
     }
-    // The live preview must composite exactly the way the stroke will bake — otherwise paint
-    // dragged across existing strokes visibly snaps at pointer-up. Watery brushes multiply
-    // (glaze), crayons and round bake with normal blending (cover). (Transparent preview
-    // pixels are no-ops under both modes.)
     this.previewSprite.blendMode = isWetBrush(this.brushId) ? WET_BRUSHES[this.brushId].blend : 'normal'
     this.updatePreview()
     this.emitHistory()
@@ -300,9 +406,6 @@ export class PaintEngine {
   pointerMove(x: number, y: number, pressure: number) {
     if (!this.currentStroke) return
     this.appendPoint(this.currentStroke.points, { x, y, pressure })
-    // Don't render here: pointer events can outrun the display (120-240Hz pens deliver several
-    // moves per vsync) and every preview render but the last per frame is discarded work. The
-    // ticker picks the flag up once per frame.
     this.previewDirty = true
   }
 
@@ -313,89 +416,123 @@ export class PaintEngine {
     this.clearPreview()
 
     if (stroke.points.length > 0) {
-      this.strokes.push(stroke)
-      this.commitStroke(stroke)
+      const layer = this.layerById(this.currentStrokeLayerId) ?? this.active
+      layer.strokes.push(stroke)
+      this.commitStroke(layer, stroke)
+      this.history.push({ layerId: layer.id, stroke })
     }
     this.emitHistory()
   }
 
-  /** Routes a newly-added (or redone) stroke to its home: wobble strokes are already live in
-   * wiggleLayer; wiggle-on wet strokes become a live animated entry; everything else gets
-   * flattened into the static texture once. */
-  private commitStroke(stroke: Stroke) {
-    if (stroke.brush === 'wobble') return
+  /** Routes a newly-added (or redone) stroke to its home within a layer. */
+  private commitStroke(layer: PictureLayer, stroke: Stroke) {
+    if (stroke.brush === 'wobble') return // tickWiggle draws it straight from layer.strokes
     if (isWetBrush(stroke.brush) && stroke.wetWiggle) {
-      this.addWetWiggleStroke(stroke)
+      this.addWetWiggleStroke(layer, stroke)
       return
     }
-    this.bakeStroke(stroke)
+    this.bakeStroke(layer, stroke)
   }
 
   undo() {
-    if (this.strokes.length === 0) return
-    const stroke = this.strokes.pop()!
-    this.redoStack.push(stroke)
-    if (stroke.brush === 'wobble') {
-      this.removeWiggleGraphics(stroke.id)
-    } else if (isWetBrush(stroke.brush) && stroke.wetWiggle) {
-      this.destroyWetWiggleStroke(stroke.id) // live entry — nothing was baked
-    } else {
-      this.rebuildBaked() // no way to "unbake" a single stroke from the flattened texture
+    if (this.history.length === 0) return
+    const entry = this.history.pop()!
+    const layer = this.layerById(entry.layerId)
+    if (layer) {
+      const i = layer.strokes.findIndex((s) => s.id === entry.stroke.id)
+      if (i >= 0) layer.strokes.splice(i, 1)
+      if (entry.stroke.brush === 'wobble') {
+        this.removeWiggleGraphics(layer, entry.stroke.id)
+      } else if (isWetBrush(entry.stroke.brush) && entry.stroke.wetWiggle) {
+        this.destroyWetWiggleStroke(layer, entry.stroke.id)
+      } else {
+        this.rebuildBaked(layer) // no way to "unbake" a single stroke from the flattened texture
+      }
     }
+    this.redoStack.push(entry)
     this.emitHistory()
   }
 
   redo() {
     if (this.redoStack.length === 0) return
-    const stroke = this.redoStack.pop()!
-    this.strokes.push(stroke)
-    this.commitStroke(stroke)
+    const entry = this.redoStack.pop()!
+    const layer = this.layerById(entry.layerId) ?? this.active
+    layer.strokes.push(entry.stroke)
+    this.commitStroke(layer, entry.stroke)
+    this.history.push({ layerId: layer.id, stroke: entry.stroke })
     this.emitHistory()
   }
 
+  /** Clears the ACTIVE layer only (a layered app's "clear" is per-layer). */
   clear() {
-    if (this.strokes.length === 0) return
-    this.strokes = []
-    this.redoStack = []
-    this.clearTexture()
-    for (const [, g] of this.wiggleGraphics) {
-      this.wiggleLayer.removeChild(g)
+    const layer = this.active
+    if (layer.strokes.length === 0) return
+    layer.strokes = []
+    this.history = this.history.filter((h) => h.layerId !== layer.id)
+    this.redoStack = this.redoStack.filter((h) => h.layerId !== layer.id)
+    this.clearTexture(layer)
+    for (const [, g] of layer.wiggleGraphics) {
+      layer.wiggleLayer.removeChild(g)
       g.destroy()
     }
-    this.wiggleGraphics.clear()
-    for (const id of [...this.wetWiggleStrokes.keys()]) this.destroyWetWiggleStroke(id)
+    layer.wiggleGraphics.clear()
+    for (const id of [...layer.wetWiggleStrokes.keys()]) this.destroyWetWiggleStroke(layer, id)
     this.emitHistory()
   }
 
-  /** Snapshot of the committed strokes — pair with loadStrokes() to carry a drawing across an
-   * engine recreation (canvas resize). Strokes are pure data; everything rebakes from them. */
-  getStrokes(): Stroke[] {
-    return this.strokes.map((stroke) => ({ ...stroke, points: [...stroke.points] }))
-  }
+  // ---- snapshot (survives a resize-driven engine recreation) ----------------
 
-  /** Replays a stroke snapshot into this (fresh) engine: rebakes static strokes, revives
-   * wobble/wiggle entries. Content outside the new canvas simply crops away; undo history
-   * survives, redo doesn't. */
-  loadStrokes(strokes: Stroke[]) {
-    this.strokes = strokes.map((stroke) => ({ ...stroke, points: [...stroke.points] }))
-    this.redoStack = []
-    this.rebuildBaked()
-    for (const stroke of this.strokes) {
-      if (isWetBrush(stroke.brush) && stroke.wetWiggle) this.addWetWiggleStroke(stroke)
-      // wobble strokes need nothing: tickWiggle drives them straight from `strokes`
+  getSnapshot(): PictureSnapshot {
+    return {
+      activeLayerId: this.activeLayerId,
+      layers: this.layers.map((l) => ({
+        id: l.id,
+        name: l.name,
+        visible: l.visible,
+        opacity: l.opacity,
+        strokes: l.strokes.map((s) => ({ ...s, points: [...s.points] })),
+      })),
     }
+  }
+
+  loadSnapshot(snap: PictureSnapshot) {
+    for (const layer of this.layers) {
+      for (const wid of [...layer.wetWiggleStrokes.keys()]) this.destroyWetWiggleStroke(layer, wid)
+      layer.destroy()
+    }
+    this.layers = []
+    this.history = []
+    this.redoStack = []
+
+    for (const ls of snap.layers) {
+      const layer = new PictureLayer(ls.id, ls.name, this.width, this.height, this.app.renderer.resolution)
+      layer.visible = ls.visible
+      layer.opacity = ls.opacity
+      layer.strokes = ls.strokes.map((s) => ({ ...s, points: [...s.points] }))
+      this.clearTexture(layer)
+      this.layers.push(layer)
+      this.rebuildBaked(layer)
+      for (const stroke of layer.strokes) {
+        if (isWetBrush(stroke.brush) && stroke.wetWiggle) this.addWetWiggleStroke(layer, stroke)
+      }
+      layer.applyDisplay()
+    }
+    if (this.layers.length === 0) this.layers.push(this.createLayer())
+    this.activeLayerId = this.layerById(snap.activeLayerId)?.id ?? this.layers[this.layers.length - 1].id
+    // History can't be reconstructed per-stroke across a reload; seed it so undo clears layers.
+    this.restack()
+    this.emitLayers()
     this.emitHistory()
   }
+
+  // ---- export ---------------------------------------------------------------
 
   async exportPNG(): Promise<string> {
-    // The picture is split across a baked texture and a live wiggle layer — composite the
-    // whole stage into a throwaway texture so the export reflects both.
     const composite = RenderTexture.create({
       width: this.width,
       height: this.height,
       resolution: this.app.renderer.resolution,
     })
-    // The hover brush ghost is UI, not artwork — keep it out of the export.
     const cursorWasVisible = this.cursorLayer.visible
     this.cursorLayer.visible = false
     this.app.renderer.render({ container: this.app.stage, target: composite })
@@ -407,38 +544,32 @@ export class PaintEngine {
     }
   }
 
-  /**
-   * Exports the picture as a perfectly looping GIF (default: 1 second at 20fps).
-   *
-   * The loop is exact, not approximate: every animated phase must advance by a whole multiple
-   * of 2π over the duration. The wet-edge orbit already runs at exactly 2π rad/s (1s period),
-   * and each wobble stroke's speed is quantized to the nearest nonzero multiple of 2π/duration
-   * for the export — a nudge of at most π/duration, barely visible, in exchange for frame N
-   * landing exactly on frame 0. Static content just rides along.
-   */
   async exportGIF(duration = this.loopTime, fps = 20): Promise<Blob> {
     if (this.currentStroke) throw new Error('Finish the stroke before exporting')
     this.exporting = true
-    // Near-full-size output: GIF encoding is CPU-bound in pixel count, but at ~1000px the
-    // whole 20-frame encode is a couple of seconds — the 480px cap this started with was
-    // compensating for background-tab timer throttling, not real encode cost.
     const scale = Math.min(1, 1000 / Math.max(this.width, this.height))
     const composite = RenderTexture.create({ width: this.width, height: this.height, resolution: scale })
     const cursorWasVisible = this.cursorLayer.visible
     this.cursorLayer.visible = false
 
-    // Loop-quantized stand-ins for wobble strokes, drawn into the SAME reused per-stroke
-    // Graphics the live animation uses (keyed by id), so no scene surgery is needed.
+    // Loop-quantized stand-ins for every wobble stroke across all layers.
     const loopStep = (2 * Math.PI) / duration
-    const loopedWobbles = this.strokes
-      .filter((s) => s.brush === 'wobble')
-      .map((s) => ({
-        ...s,
-        wiggle: s.wiggle && {
-          ...s.wiggle,
-          speed: s.wiggle.speed > 0 ? loopStep * Math.max(1, Math.round(s.wiggle.speed / loopStep)) : 0,
-        },
-      }))
+    const loopedWobbles: { layer: PictureLayer; stroke: Stroke }[] = []
+    for (const layer of this.layers) {
+      for (const s of layer.strokes) {
+        if (s.brush !== 'wobble') continue
+        loopedWobbles.push({
+          layer,
+          stroke: {
+            ...s,
+            wiggle: s.wiggle && {
+              ...s.wiggle,
+              speed: s.wiggle.speed > 0 ? loopStep * Math.max(1, Math.round(s.wiggle.speed / loopStep)) : 0,
+            },
+          },
+        })
+      }
+    }
 
     try {
       const gif = GIFEncoder()
@@ -448,25 +579,19 @@ export class PaintEngine {
 
       for (let i = 0; i < frameCount; i++) {
         const t = (i / fps) % duration
-        for (const stroke of loopedWobbles) this.updateWiggleGraphics(stroke, t)
-        for (const entry of this.wetWiggleStrokes.values()) this.renderWetWiggleStroke(entry, t)
+        for (const { layer, stroke } of loopedWobbles) this.updateWiggleGraphics(layer, stroke, t)
+        for (const layer of this.layers) {
+          for (const entry of layer.wetWiggleStrokes.values()) this.renderWetWiggleStroke(entry, t)
+        }
         this.app.renderer.render({ container: this.app.stage, target: composite })
         const { pixels, width, height } = this.app.renderer.extract.pixels(composite)
-        // One palette for every frame: the scene barely changes between frames, and a shared
-        // palette avoids color flicker while skipping the slowest step on all but frame 0.
-        // rgb565 keys (not rgb444): 12-bit keys posterize the subtle paper tones into bands
-        // that shimmer as the wet edges animate — visible as strobing and off colors.
         if (!palette) palette = quantize(pixels, 256, { format: 'rgb565' })
         gif.writeFrame(applyPalette(pixels, palette, 'rgb565'), width, height, {
           palette,
           delay,
-          repeat: 0, // loop forever
+          repeat: 0,
           first: i === 0,
         })
-        // Yield so the page stays responsive; the next iteration overwrites any live-time
-        // animation the ticker sneaks in between frames. MessageChannel, not rAF or setTimeout:
-        // hidden tabs pause rAF entirely and throttle timers to ~1s, and an export must
-        // survive the user tabbing away without paying 20x throttle penalties.
         await new Promise<void>((resolve) => {
           const channel = new MessageChannel()
           channel.port1.onmessage = () => resolve()
@@ -480,15 +605,16 @@ export class PaintEngine {
       this.exporting = false
       this.cursorLayer.visible = cursorWasVisible
       composite.destroy(true)
-      // Next ticker frame redraws wobble + wet-wiggle strokes at live time again.
     }
   }
 
   destroy() {
     this.cancelSizePreview()
-    for (const id of [...this.wetWiggleStrokes.keys()]) this.destroyWetWiggleStroke(id)
-    // Resources app.destroy can't reach: not referenced by any stage object (or, for the
-    // paper textures, only the active one is).
+    for (const layer of this.layers) {
+      for (const id of [...layer.wetWiggleStrokes.keys()]) this.destroyWetWiggleStroke(layer, id)
+      layer.destroy()
+    }
+    this.previewTexture.destroy(true)
     this.silhouetteTexture.destroy(true)
     this.washFilter.destroy()
     for (const tip of Object.values(this.wetTips)) tip.destroy(true)
@@ -496,12 +622,13 @@ export class PaintEngine {
     this.textures.soft.destroy(true)
     this.textures.rough.destroy(true)
     this.textures.grain.destroy(true)
-    // removeView: false — React owns the <canvas> DOM node, Pixi should only clean up its internal resources.
     this.app.destroy(false, { children: true, texture: true })
   }
 
+  // ---- internals ------------------------------------------------------------
+
   private emitHistory() {
-    this.onHistoryChange?.(this.strokes.length > 0, this.redoStack.length > 0)
+    this.onHistoryChange?.(this.history.length > 0, this.redoStack.length > 0)
   }
 
   private appendPoint(points: StrokePoint[], point: StrokePoint) {
@@ -525,19 +652,10 @@ export class PaintEngine {
     g.destroy({ children: true })
   }
 
-  /** Incremental wet preview: dabs that are far enough behind the pointer get stamped into the
-   * silhouette texture once and never touched again; only the still-settling tail is restamped
-   * per frame. The wash pass then runs over silhouette + tail together. Rendered with normal
-   * blending (the preview sprite composites it over the canvas); the true multiply-over-canvas
-   * happens at bake time, and since paint sits on near-white paper the two are visually
-   * near-identical. */
   private updateWetPreview(stroke: Stroke) {
     const def = WET_BRUSHES[stroke.brush as keyof typeof WET_BRUSHES]
     const spacing = Math.max(2, stroke.size * def.spacingFactor)
     const { dabs, totalLength } = computeDabs(stroke.points, stroke.size, spacing, def.jitter, hashSeed(stroke.id))
-    // Tail at least one brush-width long: perfect-freehand also re-parameterizes roughly the
-    // first `size` px of arc length while points are still arriving, so with large brushes a
-    // fixed 64px tail could permanently stamp dabs the final bake would place elsewhere.
     const settledLength = totalLength - Math.max(WET_TAIL_PX, stroke.size)
 
     const fresh = dabs.filter((d) => d.index >= this.wetStampedCount && d.arcLength <= settledLength)
@@ -561,7 +679,7 @@ export class PaintEngine {
     })
     washInput.filters = [this.washFilter]
     this.app.renderer.render({ container: washInput, target: this.previewTexture, clear: true })
-    washInput.filters = [] // detach before destroy — the filter is shared and reused
+    washInput.filters = []
     washInput.destroy({ children: true })
   }
 
@@ -570,73 +688,69 @@ export class PaintEngine {
   }
 
   private tickWiggle() {
-    const hasLiveWobble = this.currentStroke?.brush === 'wobble'
-    if (!hasLiveWobble && this.wiggleGraphics.size === 0 && !this.strokes.some((s) => s.brush === 'wobble')) {
-      return // nothing animating — stay idle
-    }
+    const liveWobbleLayerId = this.currentStroke?.brush === 'wobble' ? this.currentStrokeLayerId : null
+    for (const layer of this.layers) {
+      const hasWobble = liveWobbleLayerId === layer.id || layer.strokes.some((s) => s.brush === 'wobble')
+      if (!hasWobble && layer.wiggleGraphics.size === 0) continue
 
-    const time = performance.now() / 1000
-    const activeIds = new Set<string>()
-
-    for (const stroke of this.strokes) {
-      if (stroke.brush !== 'wobble') continue
-      activeIds.add(stroke.id)
-      this.updateWiggleGraphics(stroke, time)
-    }
-    if (hasLiveWobble) {
-      activeIds.add(this.currentStroke!.id)
-      this.updateWiggleGraphics(this.currentStroke!, time)
-    }
-
-    for (const [id, g] of this.wiggleGraphics) {
-      if (activeIds.has(id)) continue
-      this.wiggleLayer.removeChild(g)
-      g.destroy()
-      this.wiggleGraphics.delete(id)
+      const time = performance.now() / 1000
+      const activeIds = new Set<string>()
+      for (const stroke of layer.strokes) {
+        if (stroke.brush !== 'wobble') continue
+        activeIds.add(stroke.id)
+        this.updateWiggleGraphics(layer, stroke, time)
+      }
+      if (liveWobbleLayerId === layer.id && this.currentStroke) {
+        activeIds.add(this.currentStroke.id)
+        this.updateWiggleGraphics(layer, this.currentStroke, time)
+      }
+      for (const [id, g] of layer.wiggleGraphics) {
+        if (activeIds.has(id)) continue
+        layer.wiggleLayer.removeChild(g)
+        g.destroy()
+        layer.wiggleGraphics.delete(id)
+      }
     }
   }
 
   private tickWetWiggle() {
-    if (this.wetWiggleStrokes.size === 0) return
-    const time = performance.now() / 1000
-    for (const entry of this.wetWiggleStrokes.values()) this.renderWetWiggleStroke(entry, time)
+    for (const layer of this.layers) {
+      if (layer.wetWiggleStrokes.size === 0) continue
+      const time = performance.now() / 1000
+      for (const entry of layer.wetWiggleStrokes.values()) this.renderWetWiggleStroke(entry, time)
+    }
   }
 
-  private updateWiggleGraphics(stroke: Stroke, time: number) {
-    let g = this.wiggleGraphics.get(stroke.id)
+  private updateWiggleGraphics(layer: PictureLayer, stroke: Stroke, time: number) {
+    let g = layer.wiggleGraphics.get(stroke.id)
     if (!g) {
       g = new Graphics()
-      this.wiggleGraphics.set(stroke.id, g)
-      this.wiggleLayer.addChild(g)
+      layer.wiggleGraphics.set(stroke.id, g)
+      layer.wiggleLayer.addChild(g)
     }
     drawWiggleInto(g, stroke, time)
   }
 
-  private removeWiggleGraphics(id: string) {
-    const g = this.wiggleGraphics.get(id)
+  private removeWiggleGraphics(layer: PictureLayer, id: string) {
+    const g = layer.wiggleGraphics.get(id)
     if (!g) return
-    this.wiggleLayer.removeChild(g)
+    layer.wiggleLayer.removeChild(g)
     g.destroy()
-    this.wiggleGraphics.delete(id)
+    layer.wiggleGraphics.delete(id)
   }
 
-  private bakeStroke(stroke: Stroke) {
+  private bakeStroke(layer: PictureLayer, stroke: Stroke) {
     if (isWetBrush(stroke.brush)) {
-      this.bakeWetStroke(stroke)
+      this.bakeWetStroke(layer, stroke)
       return
     }
     const brush = brushes[stroke.brush as ClassicBrushId]
     const g = brush.render(stroke, this.textures)
-    this.app.renderer.render({ container: g, target: this.paintedTexture, clear: false })
+    this.app.renderer.render({ container: g, target: layer.paintedTexture, clear: false })
     g.destroy({ children: true })
   }
 
-  /** Full, from-scratch bake of a wet stroke — all dabs restamped from the stroke's final points,
-   * ignoring whatever the incremental preview left in the silhouette texture. That keeps the
-   * committed pixels a pure function of the stroke data, so undo-rebakes and redo reproduce the
-   * stroke exactly. (The live preview can differ by a hair at the tail; that settle-on-release is
-   * inherent to streamline smoothing.) */
-  private bakeWetStroke(stroke: Stroke) {
+  private bakeWetStroke(layer: PictureLayer, stroke: Stroke) {
     const def = WET_BRUSHES[stroke.brush as keyof typeof WET_BRUSHES]
     const spacing = Math.max(2, stroke.size * def.spacingFactor)
     const { dabs } = computeDabs(stroke.points, stroke.size, spacing, def.jitter, hashSeed(stroke.id))
@@ -650,59 +764,46 @@ export class PaintEngine {
     washInput.addChild(new Sprite(this.silhouetteTexture))
     this.washFilter.update({ color: stroke.color, ...def.wash })
     washInput.filters = [this.washFilter]
-    // Two-step composite. A container's blendMode does NOT reach its filter's output quad —
-    // the quad draws with the filtered node's own (normal) blend, so wrapping a filtered
-    // container in a multiply parent silently bakes with normal blending (measured directly:
-    // a glaze over existing paint committed the normal-blend pixel value, not the multiply
-    // one; invisible over bare paper, where the two agree). So: render the wash into a
-    // scratch texture with normal blending, then stamp that into the painting with a multiply
-    // Sprite — sprite-level multiply is the same proven path the painted layer itself uses.
-    // previewTexture doubles as the scratch: a bake happens exactly when the preview retires,
-    // and it's re-cleared right after.
+    // Render the wash into a scratch texture (normal blend), then stamp it into the layer with a
+    // blend-mode Sprite: a container's blendMode never reaches its filter's output quad, so the
+    // multiply must happen at the sprite level. previewTexture doubles as the scratch.
     this.app.renderer.render({ container: washInput, target: this.previewTexture, clear: true })
-    washInput.filters = [] // detach before destroy — the filter is shared and reused
+    washInput.filters = []
     washInput.destroy({ children: true })
 
     const stamp = new Sprite(this.previewTexture)
     stamp.blendMode = def.blend
-    // The stamp must be a CHILD of the rendered root: the root container of an explicit
-    // render() doesn't get its own blend state applied (this, not filters, is why earlier
-    // attempts at multiply-on-the-wrapper silently baked with normal blending).
+    // The stamp must be a CHILD of the rendered root — the root of an explicit render() doesn't
+    // get its own blend state applied.
     const root = new Container()
     root.addChild(stamp)
-    this.app.renderer.render({ container: root, target: this.paintedTexture, clear: false })
-    stamp.destroy() // sprite only — previewTexture is engine-owned
+    this.app.renderer.render({ container: root, target: layer.paintedTexture, clear: false })
+    stamp.destroy()
     root.destroy()
     this.clearPreview()
   }
 
-  private clearTexture() {
+  private clearTexture(layer: PictureLayer) {
     const bg = new Graphics().rect(0, 0, this.width, this.height).fill({ color: BACKGROUND_COLOR })
-    this.app.renderer.render({ container: bg, target: this.paintedTexture, clear: true })
+    this.app.renderer.render({ container: bg, target: layer.paintedTexture, clear: true })
     bg.destroy()
   }
 
-  private rebuildBaked() {
-    this.clearTexture()
-    for (const stroke of this.strokes) {
-      // Wobble and wiggle-on wet strokes live in their own animated layers, never in the bake.
+  private rebuildBaked(layer: PictureLayer) {
+    this.clearTexture(layer)
+    for (const stroke of layer.strokes) {
       if (stroke.brush === 'wobble') continue
       if (isWetBrush(stroke.brush) && stroke.wetWiggle) continue
-      this.bakeStroke(stroke)
+      this.bakeStroke(layer, stroke)
     }
   }
 
-  /** Creates the live entry for a wiggle-on wet stroke: silhouette stamped once into a
-   * stroke-sized texture, plus a same-sized display texture the animated wash renders into,
-   * shown by a multiply sprite positioned at the stroke's canvas origin. */
-  private addWetWiggleStroke(stroke: Stroke) {
+  private addWetWiggleStroke(layer: PictureLayer, stroke: Stroke) {
     const def = WET_BRUSHES[stroke.brush as keyof typeof WET_BRUSHES]
     const spacing = Math.max(2, stroke.size * def.spacingFactor)
     const { dabs } = computeDabs(stroke.points, stroke.size, spacing, def.jitter, hashSeed(stroke.id))
     if (dabs.length === 0) return
 
-    // Stroke bounds with room for the tip radius (incl. size jitter), the edge orbit, and a
-    // little slack — the wash displaces its lookup, so starved padding would clip the boil.
     const pad = (stroke.size * (1 + def.jitter.size)) / 2 + WET_WIGGLE_PX + 6
     let minX = Infinity
     let minY = Infinity
@@ -729,21 +830,19 @@ export class PaintEngine {
     const wash = RenderTexture.create({ width, height, resolution })
     const washInput = new Container()
     washInput.addChild(new Sprite(silhouette))
-    washInput.filters = [this.washFilter] // shared — detached before destroy
+    washInput.filters = [this.washFilter]
 
     const sprite = new Sprite(wash)
     sprite.position.set(origin.x, origin.y)
     sprite.blendMode = def.blend
-    this.wetWiggleLayer.addChild(sprite)
+    layer.wetWiggleLayer.addChild(sprite)
 
-    this.wetWiggleStrokes.set(stroke.id, { stroke, origin, silhouette, wash, washInput, sprite })
-    this.renderWetWiggleStroke(this.wetWiggleStrokes.get(stroke.id)!, performance.now() / 1000)
+    const entry: WetWiggleEntry = { stroke, origin, silhouette, wash, washInput, sprite }
+    layer.wetWiggleStrokes.set(stroke.id, entry)
+    this.renderWetWiggleStroke(entry, performance.now() / 1000)
   }
 
-  private renderWetWiggleStroke(
-    entry: NonNullable<ReturnType<typeof this.wetWiggleStrokes.get>>,
-    time: number,
-  ) {
+  private renderWetWiggleStroke(entry: WetWiggleEntry, time: number) {
     const def = WET_BRUSHES[entry.stroke.brush as keyof typeof WET_BRUSHES]
     this.washFilter.update({
       color: entry.stroke.color,
@@ -756,15 +855,15 @@ export class PaintEngine {
     this.app.renderer.render({ container: entry.washInput, target: entry.wash, clear: true })
   }
 
-  private destroyWetWiggleStroke(id: string) {
-    const entry = this.wetWiggleStrokes.get(id)
+  private destroyWetWiggleStroke(layer: PictureLayer, id: string) {
+    const entry = layer.wetWiggleStrokes.get(id)
     if (!entry) return
     entry.washInput.filters = [] // the wash filter is shared — don't let destroy take it
     entry.washInput.destroy({ children: true })
-    this.wetWiggleLayer.removeChild(entry.sprite)
+    layer.wetWiggleLayer.removeChild(entry.sprite)
     entry.sprite.destroy()
     entry.silhouette.destroy(true)
     entry.wash.destroy(true)
-    this.wetWiggleStrokes.delete(id)
+    layer.wetWiggleStrokes.delete(id)
   }
 }

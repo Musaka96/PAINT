@@ -3,6 +3,7 @@ import { PaintCanvas, type PaintCanvasHandle } from '@/components/PaintCanvas'
 import { Toolbar } from '@/components/Toolbar'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { DEFAULT_WIGGLE, type BrushId, type WiggleSettings } from '@/lib/brush-types'
+import type { LayerInfo } from '@/lib/PaintEngine'
 import { DEFAULT_PAPER, type PaperId } from '@/lib/papers'
 
 /** Horizontal room reserved for the floating sidebar (its width + breathing space). */
@@ -95,6 +96,7 @@ function App() {
     writeStorage('ants-sound', sound ? 'on' : 'off')
   }, [sound])
   const [paper, setPaper] = useState<PaperId>(DEFAULT_PAPER)
+  const [layers, setLayers] = useState<LayerInfo[]>([])
   const [canUndo, setCanUndo] = useState(false)
   const [canRedo, setCanRedo] = useState(false)
 
@@ -227,6 +229,7 @@ function App() {
                 setCanUndo(undo)
                 setCanRedo(redo)
               }}
+              onLayersChange={setLayers}
             />
 
             <div
@@ -273,6 +276,13 @@ function App() {
           onSoundChange={setSound}
           paper={paper}
           onPaperChange={setPaper}
+          layers={layers}
+          onAddLayer={() => canvasHandleRef.current?.addLayer()}
+          onDeleteLayer={(id) => canvasHandleRef.current?.deleteLayer(id)}
+          onSelectLayer={(id) => canvasHandleRef.current?.selectLayer(id)}
+          onMoveLayer={(id, direction) => canvasHandleRef.current?.moveLayer(id, direction)}
+          onLayerVisible={(id, visible) => canvasHandleRef.current?.setLayerVisible(id, visible)}
+          onLayerOpacity={(id, opacity) => canvasHandleRef.current?.setLayerOpacity(id, opacity)}
           canUndo={canUndo}
           canRedo={canRedo}
           onUndo={() => canvasHandleRef.current?.undo()}
