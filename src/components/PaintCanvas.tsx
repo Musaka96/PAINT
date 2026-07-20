@@ -250,7 +250,13 @@ export const PaintCanvas = forwardRef<PaintCanvasHandle, PaintCanvasProps>(funct
       key={`${width}x${height}`}
       ref={canvasRef}
       className="cursor-none touch-none rounded-2xl border border-black/5 shadow-[0_16px_48px_-16px_rgba(90,70,120,0.35)]"
-      style={{ width: width * displayScale, height: height * displayScale }}
+      // Scale via transform, NOT style.width/height: Pixi's autoDensity owns the canvas CSS
+      // width/height (it pins them to the engine size) and would clobber an inline width, so a
+      // shrunk-window display never took effect and the canvas overflowed. transform is
+      // orthogonal to that, and getBoundingClientRect reports the transformed box, so pointer
+      // mapping stays correct. The wrapper is sized to width*displayScale, so anchoring the
+      // scale at top-left makes the visual canvas fill the wrapper exactly.
+      style={{ transform: `scale(${displayScale})`, transformOrigin: 'top left' }}
     />
   )
 })

@@ -102,19 +102,28 @@ function App() {
 
   useEffect(() => {
     const compute = () => {
-      const availWidth = Math.max(480, window.innerWidth - SIDEBAR_SPACE - 32)
-      const availHeight = Math.max(360, window.innerHeight - 32)
-      // The canvas is a sheet on the ant-doodle desk, not wall-to-wall glass — keep a fixed
-      // ~72px ring of wallpaper visible around it (a percentage over-shrinks on big screens).
-      const fitWidth = Math.max(480, availWidth - 72)
-      const fitHeight = Math.max(360, availHeight - 72)
-      if (isBlank && !userSizedRef.current && (fitWidth !== canvasSize.width || fitHeight !== canvasSize.height)) {
-        setCanvasSize({ width: fitWidth, height: fitHeight })
-        setDisplayScale(1)
-        return
+      // True room available to the canvas (main is left:16, right:SIDEBAR_SPACE) — no floor,
+      // so a genuinely small window scales the DISPLAY down below the engine's minimum size.
+      const trueWidth = window.innerWidth - SIDEBAR_SPACE - 32
+      const trueHeight = window.innerHeight - 32
+      // Engine size is floored at a minimum drawable resolution; the display can go smaller.
+      const availWidth = Math.max(480, trueWidth)
+      const availHeight = Math.max(360, trueHeight)
+
+      let targetWidth = canvasSize.width
+      let targetHeight = canvasSize.height
+      if (isBlank && !userSizedRef.current) {
+        // The canvas is a sheet on the ant-doodle desk, not wall-to-wall glass — keep a fixed
+        // ~72px ring of wallpaper visible around it (a percentage over-shrinks on big screens).
+        targetWidth = Math.max(480, availWidth - 72)
+        targetHeight = Math.max(360, availHeight - 72)
+        if (targetWidth !== canvasSize.width || targetHeight !== canvasSize.height) {
+          setCanvasSize({ width: targetWidth, height: targetHeight })
+        }
       }
-      // Manually sized or mid-drawing: never touch the engine, just shrink the display to fit.
-      setDisplayScale(Math.min(1, availWidth / canvasSize.width, availHeight / canvasSize.height))
+      // Scale the DISPLAY against the true room (not the floored size), so the canvas never
+      // spills past the window even when the window is smaller than the engine minimum.
+      setDisplayScale(Math.min(1, trueWidth / targetWidth, trueHeight / targetHeight))
     }
     compute()
     window.addEventListener('resize', compute)
