@@ -1,5 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
 import { PaintEngine } from '@/lib/PaintEngine'
+import { BrushSounds } from '@/lib/sounds'
 import type { BrushId, Stroke, WiggleSettings } from '@/lib/brush-types'
 import type { PaperId } from '@/lib/papers'
 
@@ -18,6 +19,7 @@ interface PaintCanvasProps {
   wiggle: WiggleSettings
   wetWiggle: boolean
   loopTime: number
+  sound: boolean
   paper: PaperId
   width: number
   height: number
@@ -29,7 +31,7 @@ interface PaintCanvasProps {
 }
 
 export const PaintCanvas = forwardRef<PaintCanvasHandle, PaintCanvasProps>(function PaintCanvas(
-  { brush, color, size, wiggle, wetWiggle, loopTime, paper, width, height, displayScale = 1, onHistoryChange },
+  { brush, color, size, wiggle, wetWiggle, loopTime, sound, paper, width, height, displayScale = 1, onHistoryChange },
   ref,
 ) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -44,6 +46,19 @@ export const PaintCanvas = forwardRef<PaintCanvasHandle, PaintCanvasProps>(funct
   /** Strokes rescued from an engine about to be destroyed by a canvas resize — replayed into
    * the replacement engine so resizing never eats the drawing. */
   const carriedStrokesRef = useRef<Stroke[] | null>(null)
+
+  /** One sound engine for the component's lifetime (it survives canvas resizes). The pointer
+   * handlers live in a [width,height] effect, so they read brush/sound through refs to stay
+   * current without re-binding listeners. */
+  const soundsRef = useRef<BrushSounds | null>(null)
+  if (!soundsRef.current) soundsRef.current = new BrushSounds()
+  const brushRef = useRef(brush)
+  brushRef.current = brush
+  const lastMoveRef = useRef<{ x: number; y: number; t: number } | null>(null)
+
+  useEffect(() => {
+    soundsRef.current?.setEnabled(sound)
+  }, [sound])
 
   useImperativeHandle(ref, () => ({
     undo: () => engineRef.current?.undo(),
@@ -179,11 +194,20 @@ export const PaintCanvas = forwardRef<PaintCanvasHandle, PaintCanvasProps>(funct
       drawingRef.current = true
       const { x, y, pressure } = toLocal(e)
       engineRef.current?.pointerDown(x, y, pressure)
+      soundsRef.current?.start(brushRef.current)
+      lastMoveRef.current = { x: e.clientX, y: e.clientY, t: e.timeStamp }
     }
     const handleMove = (e: PointerEvent) => {
       const { x, y, pressure } = toLocal(e)
       if (drawingRef.current) {
         engineRef.current?.pointerMove(x, y, pressure)
+        const last = lastMoveRef.current
+        if (last) {
+          const dt = Math.max(1, e.timeStamp - last.t)
+          const speed = Math.hypot(e.clientX - last.x, e.clientY - last.y) / dt
+          soundsRef.current?.move(speed)
+        }
+        lastMoveRef.current = { x: e.clientX, y: e.clientY, t: e.timeStamp }
       } else if (e.pointerType !== 'touch') {
         // Hovering (mouse/pen in the air): show the brush ghost. Touch has no hover.
         engineRef.current?.pointerHover(x, y)
@@ -201,6 +225,7 @@ export const PaintCanvas = forwardRef<PaintCanvasHandle, PaintCanvasProps>(funct
         /* capture may never have been taken */
       }
       engineRef.current?.pointerUp()
+      soundsRef.current?.stop()
     }
 
     canvas.addEventListener('pointerdown', handleDown)

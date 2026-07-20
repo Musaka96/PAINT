@@ -29,6 +29,11 @@ function App() {
   const [wiggle, setWiggle] = useState<WiggleSettings>(DEFAULT_WIGGLE)
   const [wetWiggle, setWetWiggle] = useState(false)
   const [loopTime, setLoopTime] = useState(1)
+  const [sound, setSound] = useState(() => localStorage.getItem('wiggly-sound') !== 'off')
+
+  useEffect(() => {
+    localStorage.setItem('wiggly-sound', sound ? 'on' : 'off')
+  }, [sound])
   const [paper, setPaper] = useState<PaperId>(DEFAULT_PAPER)
   const [canUndo, setCanUndo] = useState(false)
   const [canRedo, setCanRedo] = useState(false)
@@ -136,6 +141,7 @@ function App() {
               wiggle={wiggle}
               wetWiggle={wetWiggle}
               loopTime={loopTime}
+              sound={sound}
               paper={paper}
               width={canvasSize.width}
               height={canvasSize.height}
@@ -193,6 +199,8 @@ function App() {
           onWetWiggleChange={setWetWiggle}
           loopTime={loopTime}
           onLoopTimeChange={setLoopTime}
+          sound={sound}
+          onSoundChange={setSound}
           paper={paper}
           onPaperChange={setPaper}
           canUndo={canUndo}

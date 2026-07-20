@@ -16,6 +16,8 @@ import {
   SlidersHorizontal,
   Trash2,
   Undo2,
+  Volume2,
+  VolumeX,
   Waves,
 } from 'lucide-react'
 import { ColorPicker } from '@/components/ColorPicker'
@@ -70,6 +72,8 @@ interface ToolbarProps {
   onWetWiggleChange: (on: boolean) => void
   loopTime: number
   onLoopTimeChange: (seconds: number) => void
+  sound: boolean
+  onSoundChange: (on: boolean) => void
   paper: PaperId
   onPaperChange: (paper: PaperId) => void
   canUndo: boolean
@@ -140,6 +144,8 @@ export function Toolbar({
   onWetWiggleChange,
   loopTime,
   onLoopTimeChange,
+  sound,
+  onSoundChange,
   paper,
   onPaperChange,
   canUndo,
@@ -266,6 +272,14 @@ export function Toolbar({
 
       <ToolButton label="Settings" active={panel === 'settings'} onClick={() => togglePanel('settings')}>
         <Settings2 className="size-5" />
+      </ToolButton>
+
+      <ToolButton
+        label={sound ? 'Sounds: on' : 'Sounds: off'}
+        onClick={() => onSoundChange(!sound)}
+        className={sound ? '' : 'opacity-50'}
+      >
+        {sound ? <Volume2 className="size-5" /> : <VolumeX className="size-5" />}
       </ToolButton>
 
       <div className="my-1 h-px w-7 bg-black/10" />
