@@ -50,6 +50,24 @@ const ANT_TILE_SVG = `
 
 const ANT_TILE_URL = `url("data:image/svg+xml,${encodeURIComponent(ANT_TILE_SVG)}")`
 
+/** localStorage THROWS in sandboxed iframes (itch.io embeds, strict-privacy browsers) — a
+ * blocked preference must degrade to the default, never crash the first render. */
+function readStorage(key: string): string | null {
+  try {
+    return localStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+
+function writeStorage(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value)
+  } catch {
+    /* preference just won't persist */
+  }
+}
+
 function App() {
   const canvasHandleRef = useRef<PaintCanvasHandle>(null)
   // The engine's textures are allocated at this size, and changing it recreates the engine —
@@ -71,10 +89,10 @@ function App() {
   const [wiggle, setWiggle] = useState<WiggleSettings>(DEFAULT_WIGGLE)
   const [wetWiggle, setWetWiggle] = useState(false)
   const [loopTime, setLoopTime] = useState(1)
-  const [sound, setSound] = useState(() => localStorage.getItem('ants-sound') !== 'off')
+  const [sound, setSound] = useState(() => readStorage('ants-sound') !== 'off')
 
   useEffect(() => {
-    localStorage.setItem('ants-sound', sound ? 'on' : 'off')
+    writeStorage('ants-sound', sound ? 'on' : 'off')
   }, [sound])
   const [paper, setPaper] = useState<PaperId>(DEFAULT_PAPER)
   const [canUndo, setCanUndo] = useState(false)
