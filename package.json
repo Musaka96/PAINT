@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "build:itch": "tsc -b && vite build --base=./ --outDir dist-itch",
-    "package:itch": "npm run build:itch && tar -acf ants-paints-itch.zip -C dist-itch index.html favicon.svg assets",
+    "package:itch": "npm run build:itch && node scripts/zip-itch.mjs",
     "lint": "oxlint",
     "preview": "vite preview"
   },
