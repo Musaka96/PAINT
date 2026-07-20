@@ -8,6 +8,48 @@ import { DEFAULT_PAPER, type PaperId } from '@/lib/papers'
 /** Horizontal room reserved for the floating sidebar (its width + breathing space). */
 const SIDEBAR_SPACE = 92
 
+/** The desk wallpaper: a seamless tile of little hand-doodled ants wandering in different
+ * directions, kept very faint so the artwork stays the loudest thing on screen. */
+const ANT_TILE_SVG = `
+<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'>
+  <g fill='none' stroke='#8a7d94' stroke-opacity='0.28' stroke-width='1.3' stroke-linecap='round'>
+    <g transform='translate(34,38) rotate(-24)'>
+      <ellipse cx='0' cy='0' rx='4.4' ry='3.1' fill='#8a7d94' fill-opacity='0.28' stroke='none'/>
+      <ellipse cx='6.6' cy='-0.8' rx='2.5' ry='2' fill='#8a7d94' fill-opacity='0.28' stroke='none'/>
+      <circle cx='11.4' cy='-1.6' r='2.3' fill='#8a7d94' fill-opacity='0.28' stroke='none'/>
+      <path d='M5 -2.5 L2.5 -7 M6.8 -2.6 L6.6 -7.6 M8.4 -2.4 L10.8 -6.8'/>
+      <path d='M5 1 L2.6 5.4 M6.8 1 L6.8 5.8 M8.4 0.8 L11 5'/>
+      <path d='M12.6 -3.4 Q14 -6 16 -6.6 M13.4 -2.2 Q15.6 -3 17.2 -2.4'/>
+    </g>
+    <g transform='translate(118,110) rotate(142)'>
+      <ellipse cx='0' cy='0' rx='4.4' ry='3.1' fill='#8a7d94' fill-opacity='0.28' stroke='none'/>
+      <ellipse cx='6.6' cy='-0.8' rx='2.5' ry='2' fill='#8a7d94' fill-opacity='0.28' stroke='none'/>
+      <circle cx='11.4' cy='-1.6' r='2.3' fill='#8a7d94' fill-opacity='0.28' stroke='none'/>
+      <path d='M5 -2.5 L2.5 -7 M6.8 -2.6 L6.6 -7.6 M8.4 -2.4 L10.8 -6.8'/>
+      <path d='M5 1 L2.6 5.4 M6.8 1 L6.8 5.8 M8.4 0.8 L11 5'/>
+      <path d='M12.6 -3.4 Q14 -6 16 -6.6 M13.4 -2.2 Q15.6 -3 17.2 -2.4'/>
+    </g>
+    <g transform='translate(120,32) rotate(65)'>
+      <ellipse cx='0' cy='0' rx='4.4' ry='3.1' fill='#8a7d94' fill-opacity='0.2' stroke='none'/>
+      <ellipse cx='6.6' cy='-0.8' rx='2.5' ry='2' fill='#8a7d94' fill-opacity='0.2' stroke='none'/>
+      <circle cx='11.4' cy='-1.6' r='2.3' fill='#8a7d94' fill-opacity='0.2' stroke='none'/>
+      <path d='M5 -2.5 L2.5 -7 M6.8 -2.6 L6.6 -7.6 M8.4 -2.4 L10.8 -6.8' stroke-opacity='0.2'/>
+      <path d='M5 1 L2.6 5.4 M6.8 1 L6.8 5.8 M8.4 0.8 L11 5' stroke-opacity='0.2'/>
+      <path d='M12.6 -3.4 Q14 -6 16 -6.6 M13.4 -2.2 Q15.6 -3 17.2 -2.4' stroke-opacity='0.2'/>
+    </g>
+    <g transform='translate(40,124) rotate(-105)'>
+      <ellipse cx='0' cy='0' rx='4.4' ry='3.1' fill='#8a7d94' fill-opacity='0.2' stroke='none'/>
+      <ellipse cx='6.6' cy='-0.8' rx='2.5' ry='2' fill='#8a7d94' fill-opacity='0.2' stroke='none'/>
+      <circle cx='11.4' cy='-1.6' r='2.3' fill='#8a7d94' fill-opacity='0.2' stroke='none'/>
+      <path d='M5 -2.5 L2.5 -7 M6.8 -2.6 L6.6 -7.6 M8.4 -2.4 L10.8 -6.8' stroke-opacity='0.2'/>
+      <path d='M5 1 L2.6 5.4 M6.8 1 L6.8 5.8 M8.4 0.8 L11 5' stroke-opacity='0.2'/>
+      <path d='M12.6 -3.4 Q14 -6 16 -6.6 M13.4 -2.2 Q15.6 -3 17.2 -2.4' stroke-opacity='0.2'/>
+    </g>
+  </g>
+</svg>`
+
+const ANT_TILE_URL = `url("data:image/svg+xml,${encodeURIComponent(ANT_TILE_SVG)}")`
+
 function App() {
   const canvasHandleRef = useRef<PaintCanvasHandle>(null)
   // The engine's textures are allocated at this size, and changing it recreates the engine —
@@ -29,10 +71,10 @@ function App() {
   const [wiggle, setWiggle] = useState<WiggleSettings>(DEFAULT_WIGGLE)
   const [wetWiggle, setWetWiggle] = useState(false)
   const [loopTime, setLoopTime] = useState(1)
-  const [sound, setSound] = useState(() => localStorage.getItem('wiggly-sound') !== 'off')
+  const [sound, setSound] = useState(() => localStorage.getItem('ants-sound') !== 'off')
 
   useEffect(() => {
-    localStorage.setItem('wiggly-sound', sound ? 'on' : 'off')
+    localStorage.setItem('ants-sound', sound ? 'on' : 'off')
   }, [sound])
   const [paper, setPaper] = useState<PaperId>(DEFAULT_PAPER)
   const [canUndo, setCanUndo] = useState(false)
@@ -97,7 +139,7 @@ function App() {
     if (!dataUrl) return
     const link = document.createElement('a')
     link.href = dataUrl
-    link.download = 'paint.png'
+    link.download = 'ants-paint.png'
     link.click()
   }
 
@@ -111,7 +153,7 @@ function App() {
       const url = URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = url
-      link.download = 'paint.gif'
+      link.download = 'ants-paint.gif'
       link.click()
       URL.revokeObjectURL(url)
     } finally {
@@ -123,7 +165,7 @@ function App() {
     <TooltipProvider>
       <div
         className="fixed inset-0 overflow-hidden"
-        style={{ background: 'linear-gradient(135deg, #f6f0e8 0%, #efe8f2 55%, #e7eef1 100%)' }}
+        style={{ backgroundColor: '#f3eee6', backgroundImage: ANT_TILE_URL, backgroundSize: '160px 160px' }}
       >
         <main
           className="absolute inset-y-4 left-4 flex items-center justify-center"
@@ -178,13 +220,6 @@ function App() {
             )}
           </div>
         </main>
-
-        <h1
-          className="pointer-events-none fixed top-4 left-6 z-10 -rotate-2 rounded-full bg-white/70 px-4 py-0.5 text-2xl text-violet-500 shadow-sm backdrop-blur-sm select-none"
-          style={{ fontFamily: "'Caveat', cursive" }}
-        >
-          Wiggly Paint
-        </h1>
 
         <Toolbar
           brush={brush}
