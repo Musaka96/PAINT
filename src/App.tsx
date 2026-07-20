@@ -57,8 +57,8 @@ function App() {
   // full size (recreating costs nothing); once anything is drawn, the size freezes and the
   // canvas only CSS-scales down to fit (pointer coords map through the live bounding rect).
   const [canvasSize, setCanvasSize] = useState(() => ({
-    width: Math.max(480, Math.round((window.innerWidth - SIDEBAR_SPACE - 32) * 0.85)),
-    height: Math.max(360, Math.round((window.innerHeight - 32) * 0.85)),
+    width: Math.max(480, window.innerWidth - SIDEBAR_SPACE - 32 - 72),
+    height: Math.max(360, window.innerHeight - 32 - 72),
   }))
   const [displayScale, setDisplayScale] = useState(1)
   /** Dashed outline shown while dragging a resize handle; committed on release. */
@@ -86,10 +86,10 @@ function App() {
     const compute = () => {
       const availWidth = Math.max(480, window.innerWidth - SIDEBAR_SPACE - 32)
       const availHeight = Math.max(360, window.innerHeight - 32)
-      // The canvas is a sheet on the ant-doodle desk, not wall-to-wall glass — default to 85%
-      // of the room so the wallpaper frames the drawing. (Hand-resizing can still go bigger.)
-      const fitWidth = Math.max(480, Math.round(availWidth * 0.85))
-      const fitHeight = Math.max(360, Math.round(availHeight * 0.85))
+      // The canvas is a sheet on the ant-doodle desk, not wall-to-wall glass — keep a fixed
+      // ~72px ring of wallpaper visible around it (a percentage over-shrinks on big screens).
+      const fitWidth = Math.max(480, availWidth - 72)
+      const fitHeight = Math.max(360, availHeight - 72)
       if (isBlank && !userSizedRef.current && (fitWidth !== canvasSize.width || fitHeight !== canvasSize.height)) {
         setCanvasSize({ width: fitWidth, height: fitHeight })
         setDisplayScale(1)
@@ -115,9 +115,13 @@ function App() {
     const onMove = (ev: PointerEvent) => {
       const dx = (ev.clientX - startX) / displayScale
       const dy = (ev.clientY - startY) / displayScale
+      // Clamp to the desk: the sheet can grow right up to the available room but never past
+      // the window edge — what you drag is exactly what you get, no post-release rescaling.
+      const maxWidth = Math.max(480, window.innerWidth - SIDEBAR_SPACE - 32)
+      const maxHeight = Math.max(360, window.innerHeight - 32)
       ghost = {
-        width: axis === 'x' ? Math.min(2400, Math.max(320, Math.round(base.width + dx))) : base.width,
-        height: axis === 'y' ? Math.min(1600, Math.max(240, Math.round(base.height + dy))) : base.height,
+        width: axis === 'x' ? Math.min(maxWidth, Math.max(320, Math.round(base.width + dx))) : base.width,
+        height: axis === 'y' ? Math.min(maxHeight, Math.max(240, Math.round(base.height + dy))) : base.height,
       }
       setResizeGhost({ ...ghost })
     }
