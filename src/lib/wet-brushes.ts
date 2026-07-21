@@ -2,7 +2,9 @@ import type { DabJitter } from './stamping'
 import type { WashSettings } from './wash-filter'
 import type { WetTips } from './tips'
 
-export type WetBrushId = 'wetsharp' | 'wetround' | 'crayon' | 'pastel' | 'gouache'
+/** Every brush that runs through the dab-stamping + wash pipeline (not just the wet ones — the
+ * plain round marker lives here too, so it gets the same smooth, flat-width path treatment). */
+export type WetBrushId = 'round' | 'wetsharp' | 'wetround' | 'crayon' | 'pastel' | 'gouache'
 
 export interface WetBrushDef {
   id: WetBrushId
@@ -16,9 +18,25 @@ export interface WetBrushDef {
   /** How committed strokes composite onto the painting: watery pigment multiplies (glazes),
    * wax/chalk sits on top (covers — and can paint white). */
   blend: 'multiply' | 'normal'
+  /** Whether the animated wet-edge wiggle toggle applies. Omitted = yes; the round marker
+   * opts out (it has no wet edge to boil). */
+  wiggleable?: boolean
 }
 
 export const WET_BRUSHES: Record<WetBrushId, WetBrushDef> = {
+  /** The plain round marker: a soft solid tip stamped densely along a smoothed path, flat
+   * width with zero jitter — nothing responds to speed or pressure. Normal blend so it covers,
+   * and it can paint white. Mode 3 keeps the fill clean (no edge ring, no speckle). */
+  round: {
+    id: 'round',
+    label: 'Round',
+    tip: 'round',
+    spacingFactor: 0.1,
+    jitter: { size: 0, rotation: 0, scatter: 0, alpha: 0 },
+    wash: { opacity: 0.95, edgeGain: 0, granulation: 0.15, mode: 3 },
+    blend: 'normal',
+    wiggleable: false,
+  },
   /** The flat glaze — clean sharp-ish edges, translucent, builds tone by layering strokes.
    * Tight spacing and minimal jitter give a smooth ribbon; the character comes from the
    * paper showing through and layered strokes multiplying. */

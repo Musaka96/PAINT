@@ -8,9 +8,10 @@ export interface StrokePoint {
 
 export type BrushId = 'round' | 'wobble' | 'wetsharp' | 'wetround' | 'crayon' | 'pastel' | 'gouache'
 
-/** Brushes with a classic render-a-Container implementation. Wet brushes ('wetsharp'/'wetround')
- * instead go through the engine's dab-stamping + wash pipeline, which needs renderer access. */
-export type ClassicBrushId = 'round' | 'wobble'
+/** Brushes with a classic render-a-Container implementation. Everything else (round + the wet
+ * and dry-media brushes) goes through the engine's dab-stamping + wash pipeline. Only the
+ * wiggly line brush remains classic — it's a perpetually-animated centerline, not stamped. */
+export type ClassicBrushId = 'wobble'
 
 export type WigglePattern = 'sine' | 'zigzag' | 'square'
 

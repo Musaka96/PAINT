@@ -83,7 +83,13 @@ void main()
     float edge = smoothstep(0.05, 0.4, a) * (1.0 - smoothstep(0.5, 0.92, a));
 
     float density;
-    if (uMode > 1.5) {
+    if (uMode > 2.5) {
+        // Solid marker (round): clean, even coverage from the soft round tip, with just a
+        // whisper of paper tooth. No edge ring, no speckle — a plain flat line.
+        float cover = smoothstep(0.03, 0.5, a);
+        density = uOpacity * cover * (1.0 + uGranulation * grain);
+        density = clamp(density, 0.0, 1.0);
+    } else if (uMode > 1.5) {
         // Gouache / print: flat, velvety, near-opaque color with a fine ink speckle — the
         // screen-print look. The speckle is the paper texture resampled at a much higher
         // frequency, so it reads as print grain rather than paper tooth; the softer coverage
@@ -130,8 +136,9 @@ export interface WashSettings {
   /** Canvas-space origin of the filtered frame, for stroke-local offscreen textures. */
   paperOffset?: { x: number; y: number }
   /** 0 = watercolor wash (default), 1 = crayon (wax catching the raised tooth),
-   * 2 = gouache/print (flat velvety coverage with fine ink speckle). */
-  mode?: 0 | 1 | 2
+   * 2 = gouache/print (flat velvety coverage with fine ink speckle),
+   * 3 = solid marker (clean even coverage, round brush). */
+  mode?: 0 | 1 | 2 | 3
 }
 
 export class WashFilter extends Filter {

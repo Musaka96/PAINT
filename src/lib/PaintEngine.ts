@@ -1,7 +1,6 @@
 import { Application, Container, Graphics, RenderTexture, Sprite, TilingSprite, type Texture } from 'pixi.js'
 import { GIFEncoder, applyPalette, quantize } from 'gifenc'
-import { DEFAULT_WIGGLE, type BrushId, type BrushTextures, type ClassicBrushId, type Stroke, type StrokePoint, type WiggleSettings } from './brush-types'
-import { brushes } from './brushes'
+import { DEFAULT_WIGGLE, type BrushId, type BrushTextures, type Stroke, type StrokePoint, type WiggleSettings } from './brush-types'
 import { drawWiggleInto } from './brushes/wobble'
 import { createSoftTexture, createRoughTexture, createGrainTexture } from './textures'
 import { createPaperTextures, DEFAULT_PAPER, PAPER_TILE_SIZE, type PaperId } from './papers'
@@ -374,8 +373,6 @@ export class PaintEngine {
       ring.moveTo(-span, 0)
       for (let i = -span; i <= span; i += 1) ring.lineTo(i, Math.sin((i / span) * Math.PI * 2) * span * 0.3)
       ring.stroke({ width: 1.5, color: this.color, alpha: 0.9 })
-    } else if (this.brushId === 'round') {
-      ring.circle(0, 0, Math.max(1.5, radius - 2)).fill({ color: this.color, alpha: 0.25 })
     }
     this.cursorLayer.addChild(ring)
   }
@@ -392,7 +389,10 @@ export class PaintEngine {
       size: this.size,
       points: [{ x, y, pressure }],
       wiggle: this.brushId === 'wobble' ? { ...this.wiggle } : undefined,
-      wetWiggle: isWetBrush(this.brushId) ? this.wetWiggle : undefined,
+      wetWiggle:
+        isWetBrush(this.brushId) && WET_BRUSHES[this.brushId].wiggleable !== false
+          ? this.wetWiggle
+          : undefined,
     }
     if (isWetBrush(this.brushId)) {
       this.wetStampedCount = 0
@@ -638,18 +638,12 @@ export class PaintEngine {
   }
 
   private updatePreview() {
+    // Wobble previews live in its own animated layer; everything else is a dab brush.
     if (!this.currentStroke || this.currentStroke.brush === 'wobble') {
       this.clearPreview()
       return
     }
-    if (isWetBrush(this.currentStroke.brush)) {
-      this.updateWetPreview(this.currentStroke)
-      return
-    }
-    const brush = brushes[this.currentStroke.brush]
-    const g = brush.render(this.currentStroke, this.textures)
-    this.app.renderer.render({ container: g, target: this.previewTexture, clear: true })
-    g.destroy({ children: true })
+    this.updateWetPreview(this.currentStroke)
   }
 
   private updateWetPreview(stroke: Stroke) {
@@ -739,15 +733,9 @@ export class PaintEngine {
     layer.wiggleGraphics.delete(id)
   }
 
+  /** Only dab brushes ever bake — wobble lives in its animated layer, never flattened. */
   private bakeStroke(layer: PictureLayer, stroke: Stroke) {
-    if (isWetBrush(stroke.brush)) {
-      this.bakeWetStroke(layer, stroke)
-      return
-    }
-    const brush = brushes[stroke.brush as ClassicBrushId]
-    const g = brush.render(stroke, this.textures)
-    this.app.renderer.render({ container: g, target: layer.paintedTexture, clear: false })
-    g.destroy({ children: true })
+    this.bakeWetStroke(layer, stroke)
   }
 
   private bakeWetStroke(layer: PictureLayer, stroke: Stroke) {

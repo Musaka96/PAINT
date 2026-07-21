@@ -5,6 +5,8 @@ import { mulberry32 } from './random'
  * comes later from the wash shader, which reads only the stamped silhouette's alpha. Both are
  * seeded so the tips (and therefore every stroke's edge character) are identical across loads. */
 export interface WetTips {
+  /** Clean solid disc with a soft anti-aliased rim — the plain round marker tip. */
+  round: Texture
   /** Hard, clean-edged disc with a whisper of falloff — the "Round Sharp" glaze tip. */
   sharp: Texture
   /** Ragged, splotchy disc with chunky edge noise and stray speckles — the "Round" wash tip. */
@@ -216,8 +218,28 @@ export function createGouacheTip(size = 160): Texture {
   return Texture.from(canvas)
 }
 
+/** A clean, solid round dot with a soft feathered edge — no noise, no wobble. Stamped densely
+ * along a smoothed path it makes an even, flat-width marker line. */
+export function createRoundTip(size = 128): Texture {
+  const canvas = document.createElement('canvas')
+  canvas.width = size
+  canvas.height = size
+  const ctx = canvas.getContext('2d')!
+  const r = size / 2
+  const gradient = ctx.createRadialGradient(r, r, 0, r, r, r)
+  gradient.addColorStop(0, 'rgba(255,255,255,1)')
+  gradient.addColorStop(0.82, 'rgba(255,255,255,1)')
+  gradient.addColorStop(1, 'rgba(255,255,255,0)')
+  ctx.fillStyle = gradient
+  ctx.beginPath()
+  ctx.arc(r, r, r, 0, Math.PI * 2)
+  ctx.fill()
+  return Texture.from(canvas)
+}
+
 export function createWetTips(): WetTips {
   return {
+    round: createRoundTip(),
     sharp: createSharpTip(),
     splotch: createSplotchTip(),
     crayon: createCrayonTip(),
