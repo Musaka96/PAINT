@@ -203,10 +203,15 @@ export function Toolbar({
   }, [brush])
 
   return (
+    // Outer wrapper is the flyout anchor and is capped to the viewport height; it does NOT
+    // scroll, so the flyouts (which extend leftward and are vertically centred) never get
+    // clipped. The inner pill holds the buttons and scrolls when the sidebar is taller than
+    // the window — otherwise it just shrink-wraps its contents and stays centred.
     <aside
       ref={asideRef}
-      className="fixed top-1/2 right-3 z-20 flex -translate-y-1/2 flex-col items-center gap-1 rounded-[28px] border border-black/5 bg-white/80 p-2 shadow-xl backdrop-blur-md"
+      className="fixed top-1/2 right-3 z-20 flex max-h-[calc(100dvh-1rem)] -translate-y-1/2 flex-col"
     >
+      <div className="flex min-h-0 flex-col items-center gap-1 overflow-y-auto rounded-[28px] border border-black/5 bg-white/80 p-2 shadow-xl backdrop-blur-md [scrollbar-width:thin]">
       {INK_BRUSHES.map(({ id, label, icon: Icon }) => (
         <ToolButton key={id} label={label} active={brush === id} onClick={() => onBrushChange(id)}>
           <Icon className="size-5" />
@@ -342,6 +347,7 @@ export function Toolbar({
         </TooltipTrigger>
         <TooltipContent side="left">Save GIF — a perfect 1s loop</TooltipContent>
       </Tooltip>
+      </div>
 
       {panel === 'color' && (
         <Flyout title="Color">
