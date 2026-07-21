@@ -229,16 +229,26 @@ export class PaintEngine {
     return layer
   }
 
-  /** Rebuilds the stage's child order: paper, layers bottom-to-top, the live preview just above
-   * the active layer, and the cursor ghost on top. */
+  /** Detach the shared preview sprite from whichever layer root currently holds it, so a layer
+   * about to be re-stacked or destroyed doesn't take the (engine-owned) preview down with it. */
+  private detachPreview() {
+    this.previewSprite.parent?.removeChild(this.previewSprite)
+  }
+
+  /** Rebuilds the stage's child order: paper, layers bottom-to-top, cursor ghost on top. The
+   * live preview is parented INSIDE the active layer's root — just above its baked pixels but
+   * below its live (wobble / wet-wiggle) sublayers — so an in-progress stroke previews at the
+   * exact z-order it will bake to, with no jump when it commits. */
   private restack() {
     const stage = this.app.stage
+    this.detachPreview()
     stage.removeChildren()
     stage.addChild(this.paperSprite)
-    for (const layer of this.layers) {
-      stage.addChild(layer.root)
-      if (layer.id === this.activeLayerId) stage.addChild(this.previewSprite)
-    }
+    for (const layer of this.layers) stage.addChild(layer.root)
+    // Index 1: root children are [paintedSprite, wetWiggleLayer, wiggleLayer]; slot the preview
+    // right after the baked sprite and before the live sublayers.
+    const active = this.layerById(this.activeLayerId)
+    if (active) active.root.addChildAt(this.previewSprite, 1)
     stage.addChild(this.cursorLayer)
   }
 
@@ -256,6 +266,7 @@ export class PaintEngine {
     const idx = this.layers.findIndex((l) => l.id === id)
     if (idx < 0) return
     const layer = this.layers[idx]
+    this.detachPreview() // the preview may live in this layer's root — don't destroy it with it
     for (const wid of [...layer.wetWiggleStrokes.keys()]) this.destroyWetWiggleStroke(layer, wid)
     layer.destroy()
     this.layers.splice(idx, 1)
@@ -496,6 +507,7 @@ export class PaintEngine {
   }
 
   loadSnapshot(snap: PictureSnapshot) {
+    this.detachPreview() // don't let a destroyed layer root take the shared preview with it
     for (const layer of this.layers) {
       for (const wid of [...layer.wetWiggleStrokes.keys()]) this.destroyWetWiggleStroke(layer, wid)
       layer.destroy()
@@ -610,10 +622,12 @@ export class PaintEngine {
 
   destroy() {
     this.cancelSizePreview()
+    this.detachPreview() // pull it out of the active layer root before that root is destroyed
     for (const layer of this.layers) {
       for (const id of [...layer.wetWiggleStrokes.keys()]) this.destroyWetWiggleStroke(layer, id)
       layer.destroy()
     }
+    this.previewSprite.destroy()
     this.previewTexture.destroy(true)
     this.silhouetteTexture.destroy(true)
     this.washFilter.destroy()
