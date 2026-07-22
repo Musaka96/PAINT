@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronUp, Eye, EyeOff, Plus, Trash2 } from 'lucide-react'
+import { ChevronDown, ChevronUp, Eraser, Eye, EyeOff, Plus, Trash2 } from 'lucide-react'
 import { Slider } from '@/components/ui/slider'
 import type { LayerInfo } from '@/lib/PaintEngine'
 
@@ -10,6 +10,8 @@ interface LayersPanelProps {
   onMove: (id: string, direction: 'up' | 'down') => void
   onVisible: (id: string, visible: boolean) => void
   onOpacity: (id: string, opacity: number) => void
+  /** Clear wipes the ACTIVE layer, so it lives here rather than as a lone sidebar icon. */
+  onClear: () => void
 }
 
 export function LayersPanel({
@@ -20,6 +22,7 @@ export function LayersPanel({
   onMove,
   onVisible,
   onOpacity,
+  onClear,
 }: LayersPanelProps) {
   return (
     <div className="flex w-60 flex-col">
@@ -125,6 +128,15 @@ export function LayersPanel({
           </div>
         ))}
       </div>
+
+      <button
+        type="button"
+        onClick={onClear}
+        className="mt-2 flex items-center justify-center gap-1.5 rounded-2xl border border-black/5 bg-white px-3 py-2 text-xs text-muted-foreground transition-colors hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600"
+      >
+        <Eraser className="size-3.5" />
+        Clear this layer
+      </button>
     </div>
   )
 }
