@@ -6,6 +6,12 @@
       "runtimeExecutable": "E:\\Projects\\PAINT\\.claude\\dev-server.cmd",
       "runtimeArgs": [],
       "port": 5173
+    },
+    {
+      "name": "itch-preview",
+      "runtimeExecutable": "E:\\Projects\\PAINT\\.claude\\itch-server.cmd",
+      "runtimeArgs": [],
+      "port": 4173
     }
   ]
 }
