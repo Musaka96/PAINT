@@ -6,7 +6,16 @@ export interface StrokePoint {
   pressure: number
 }
 
-export type BrushId = 'round' | 'wobble' | 'wetsharp' | 'wetround' | 'crayon' | 'pastel' | 'gouache'
+export type BrushId =
+  | 'round'
+  | 'wobble'
+  | 'wetsharp'
+  | 'wetround'
+  | 'crayon'
+  | 'pastel'
+  | 'gouache'
+  | 'pencil'
+  | 'softpencil'
 
 /** Brushes with a classic render-a-Container implementation. Everything else (round + the wet
  * and dry-media brushes) goes through the engine's dab-stamping + wash pipeline. Only the

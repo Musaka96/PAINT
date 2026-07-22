@@ -1,7 +1,7 @@
 import { Texture } from 'pixi.js'
 import { mulberry32 } from './random'
 
-export type PaperId = 'smooth' | 'coldpress' | 'rough'
+export type PaperId = 'smooth' | 'coldpress' | 'rough' | 'sketch' | 'canvas' | 'kraft'
 
 export interface PaperInfo {
   id: PaperId
@@ -12,6 +12,9 @@ export const PAPERS: PaperInfo[] = [
   { id: 'smooth', label: 'Smooth' },
   { id: 'coldpress', label: 'Cold Press' },
   { id: 'rough', label: 'Rough' },
+  { id: 'sketch', label: 'Sketch' },
+  { id: 'canvas', label: 'Canvas' },
+  { id: 'kraft', label: 'Kraft' },
 ]
 
 export const DEFAULT_PAPER: PaperId = 'coldpress'
@@ -70,7 +73,10 @@ function fbm(seed: number, gridX: number, gridY: number, octaves: number, gain =
 }
 
 interface PaperRecipe {
-  /** Warm tint applied around the normalized mean, as per-channel offsets from gray. */
+  /** Warm tint applied around the normalized mean, as per-channel offsets from gray. Keep the
+   * RED offset near zero even for strongly colored sheets: the wash shader reads granulation
+   * from the red channel alone, so shifting it would bias every stroke's mottling. Colour a
+   * sheet by pulling GREEN and BLUE down instead (that's how kraft gets brown). */
   tint: [number, number, number]
   /** Luminance field in arbitrary units, evaluated per pixel at tile UVs. */
   field: (seed: number) => (u: number, v: number) => number
@@ -127,6 +133,62 @@ const RECIPES: Record<PaperId, PaperRecipe> = {
     fiberCount: 260,
     fiberAlpha: 0.04,
     seed: 303,
+  },
+  /** Sketchbook laid paper: cream, lightly toothed, with the faint regular ribbing a laid mould
+   * leaves — close vertical wire lines crossed by widely spaced chain lines. The sines use whole
+   * numbers of cycles per tile, so the ribbing stays seamless. */
+  sketch: {
+    tint: [1, -5, -20],
+    field: (seed) => {
+      const tooth = fbm(seed, 70, 70, 3)
+      const drift = fbm(seed + 1, 10, 10, 2)
+      return (u, v) => {
+        const wire = Math.sin(u * Math.PI * 2 * 64) * 1.5
+        const chain = Math.sin(u * Math.PI * 2 * 8) * 1.1
+        // The ribbing fades in and out across the sheet instead of running dead-even.
+        return (wire + chain) * (0.7 + drift(u, v) * 0.6) + tooth(u, v) * 4 + drift(u, v) * 3
+      }
+    },
+    speckle: 1.6,
+    fiberCount: 120,
+    fiberAlpha: 0.025,
+    seed: 404,
+  },
+  /** Stretched canvas: a woven grid of warp and weft threads. Each thread direction is a sine
+   * ridge; where they cross, the weave sits proudest and the dips between hold pigment. */
+  canvas: {
+    tint: [2, -6, -22],
+    field: (seed) => {
+      const slub = fbm(seed, 40, 40, 3)
+      const broad = fbm(seed + 1, 7, 7, 2)
+      return (u, v) => {
+        // Threads are offset by the crossing direction's phase, so they read as over/under
+        // weaving rather than a flat waffle grid.
+        const warp = Math.sin(u * Math.PI * 2 * 64 + Math.sin(v * Math.PI * 2 * 64) * 0.6)
+        const weft = Math.sin(v * Math.PI * 2 * 64 + Math.sin(u * Math.PI * 2 * 64) * 0.6)
+        // Irregular thread thickness (slubs) keeps it from looking machine-printed.
+        return (warp + weft) * (5 + slub(u, v) * 2.5) + broad(u, v) * 5
+      }
+    },
+    speckle: 2,
+    fiberCount: 150,
+    fiberAlpha: 0.03,
+    seed: 505,
+  },
+  /** Recycled kraft: warm brown, coarsely pulped, shot through with visible flecks of stray
+   * fiber. Only green and blue are pulled down (see `tint`), so it granulates like the rest. */
+  kraft: {
+    tint: [0, -30, -66],
+    field: (seed) => {
+      const pulp = fbm(seed, 30, 34, 4)
+      const clumps = fbm(seed + 1, 12, 12, 2)
+      const fine = fbm(seed + 2, 100, 100, 2)
+      return (u, v) => pulp(u, v) * 9 + clumps(u, v) * 5 + fine(u, v) * 3
+    },
+    speckle: 2.4,
+    fiberCount: 520,
+    fiberAlpha: 0.06,
+    seed: 606,
   },
 }
 
@@ -196,10 +258,17 @@ function createPaperTexture(recipe: PaperRecipe, size = PAPER_TILE_SIZE): Textur
   return texture
 }
 
-export function createPaperTextures(): Record<PaperId, Texture> {
-  return {
-    smooth: createPaperTexture(RECIPES.smooth),
-    coldpress: createPaperTexture(RECIPES.coldpress),
-    rough: createPaperTexture(RECIPES.rough),
+/** Sheets are expensive to synthesize (a quarter-million pixels of multi-octave noise each) and
+ * completely deterministic, so they're built on first use and shared for the page's lifetime.
+ * That matters twice over: a canvas resize rebuilds the whole engine, and only one or two of the
+ * six papers are ever actually looked at. Never destroy these — the cache outlives any engine. */
+const cache = new Map<PaperId, Texture>()
+
+export function getPaperTexture(id: PaperId): Texture {
+  let texture = cache.get(id)
+  if (!texture) {
+    texture = createPaperTexture(RECIPES[id])
+    cache.set(id, texture)
   }
+  return texture
 }

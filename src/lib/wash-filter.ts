@@ -83,7 +83,23 @@ void main()
     float edge = smoothstep(0.05, 0.4, a) * (1.0 - smoothstep(0.5, 0.92, a));
 
     float density;
-    if (uMode > 2.5) {
+    if (uMode > 3.5) {
+        // Graphite. Like the crayon it deposits on the RAISED tooth and skips the pits, but the
+        // physics differ in two ways that define the pencil look: the flakes are tiny, so the
+        // grain is sampled at a higher frequency than the paper's own bumps; and a pass lays
+        // down only a thin film, so coverage stays translucent and layered hatching is what
+        // builds tone (this brush multiplies, so passes genuinely accumulate).
+        float fine = texture(uPaperTexture, canvasCoord * uPaperScale * 3.3).r;
+        float fineGrain = clamp((0.972 - fine) * 18.0, -1.0, 1.0);
+        float tooth = mix(grain, fineGrain, 0.6);
+        // The window has to be tight to bite at all — paper grain clusters near the sheet mean,
+        // so a wide ramp just maps every pixel to ~half coverage and the line comes out flat.
+        // Still wider than the crayon's, which is the difference between graphite greying the
+        // tooth and wax snapping between full deposit and bare paper.
+        float toothCatch = smoothstep(0.3, 0.76, 0.5 - 0.5 * tooth);
+        float cover = body * mix(1.0, toothCatch, uGranulation);
+        density = clamp(uOpacity * cover, 0.0, 0.95);
+    } else if (uMode > 2.5) {
         // Solid marker (round): clean, even coverage from the soft round tip, with just a
         // whisper of paper tooth. No edge ring, no speckle — a plain flat line.
         float cover = smoothstep(0.03, 0.5, a);
@@ -137,8 +153,9 @@ export interface WashSettings {
   paperOffset?: { x: number; y: number }
   /** 0 = watercolor wash (default), 1 = crayon (wax catching the raised tooth),
    * 2 = gouache/print (flat velvety coverage with fine ink speckle),
-   * 3 = solid marker (clean even coverage, round brush). */
-  mode?: 0 | 1 | 2 | 3
+   * 3 = solid marker (clean even coverage, round brush),
+   * 4 = graphite (fine tooth-catch, translucent so hatching builds tone). */
+  mode?: 0 | 1 | 2 | 3 | 4
 }
 
 export class WashFilter extends Filter {

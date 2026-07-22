@@ -4,7 +4,15 @@ import type { WetTips } from './tips'
 
 /** Every brush that runs through the dab-stamping + wash pipeline (not just the wet ones — the
  * plain round marker lives here too, so it gets the same smooth, flat-width path treatment). */
-export type WetBrushId = 'round' | 'wetsharp' | 'wetround' | 'crayon' | 'pastel' | 'gouache'
+export type WetBrushId =
+  | 'round'
+  | 'wetsharp'
+  | 'wetround'
+  | 'crayon'
+  | 'pastel'
+  | 'gouache'
+  | 'pencil'
+  | 'softpencil'
 
 export interface WetBrushDef {
   id: WetBrushId
@@ -83,6 +91,29 @@ export const WET_BRUSHES: Record<WetBrushId, WetBrushDef> = {
     jitter: { size: 0.05, rotation: Math.PI, scatter: 0.015, alpha: 0 },
     wash: { opacity: 0.96, edgeGain: 0, granulation: 0.35, mode: 2 },
     blend: 'normal',
+  },
+  /** HB pencil: a thin graphite line that catches the fine tooth (mode 4) and stays translucent,
+   * so it multiplies — going over the same spot darkens it, and hatching builds tone the way it
+   * does on real paper. Tight spacing keeps the line continuous at small sizes. */
+  pencil: {
+    id: 'pencil',
+    label: 'Pencil',
+    tip: 'pencil',
+    spacingFactor: 0.08,
+    jitter: { size: 0.07, rotation: Math.PI, scatter: 0.045, alpha: 0.12 },
+    wash: { opacity: 0.55, edgeGain: 0, granulation: 0.9, mode: 4 },
+    blend: 'multiply',
+  },
+  /** Soft (6B-ish) pencil: darker, blunter and dustier — the one for shading. Looser scatter and
+   * size jitter give the broad, slightly smudged shoulder a worn soft lead leaves. */
+  softpencil: {
+    id: 'softpencil',
+    label: 'Soft Pencil',
+    tip: 'softpencil',
+    spacingFactor: 0.1,
+    jitter: { size: 0.14, rotation: Math.PI, scatter: 0.08, alpha: 0.16 },
+    wash: { opacity: 0.8, edgeGain: 0, granulation: 0.62, mode: 4 },
+    blend: 'multiply',
   },
   /** Soft pastel: chalkier and fuller than the crayon — gentler tooth-skip, dustier tip,
    * slightly translucent so strokes layer like chalk over chalk. */

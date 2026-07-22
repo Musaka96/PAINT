@@ -9,7 +9,9 @@ import {
   Highlighter,
   Layers,
   Loader2,
+  PaintbrushVertical,
   Pencil,
+  PencilLine,
   Redo2,
   Settings2,
   Share,
@@ -38,6 +40,14 @@ const BRUSH_GROUPS: BrushGroup[] = [
     ],
   },
   {
+    name: 'Pencil',
+    accent: 'bg-stone-50',
+    brushes: [
+      { id: 'pencil', label: 'HB', icon: PencilLine },
+      { id: 'softpencil', label: 'Soft 6B', icon: Pencil },
+    ],
+  },
+  {
     name: 'Watercolor',
     accent: 'bg-sky-50',
     brushes: [
@@ -49,7 +59,7 @@ const BRUSH_GROUPS: BrushGroup[] = [
     name: 'Dry media',
     accent: 'bg-amber-50',
     brushes: [
-      { id: 'crayon', label: 'Crayon', icon: Pencil },
+      { id: 'crayon', label: 'Crayon', icon: PaintbrushVertical },
       { id: 'pastel', label: 'Pastel', icon: Highlighter },
       { id: 'gouache', label: 'Gouache', icon: Brush },
     ],
@@ -64,6 +74,9 @@ const PAPER_BLURBS: Record<PaperId, string> = {
   smooth: 'silky & even',
   coldpress: 'the classic',
   rough: 'extra toothy',
+  sketch: 'cream & ribbed',
+  canvas: 'woven threads',
+  kraft: 'brown & pulpy',
 }
 
 type PanelId = 'brushes' | 'color' | 'layers' | 'settings' | 'export' | null

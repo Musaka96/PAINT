@@ -17,6 +17,10 @@ export interface WetTips {
   pastel: Texture
   /** Dense smooth disc with a short, faintly grainy falloff — plush gouache/print edges. */
   gouache: Texture
+  /** Small hard graphite point: dark core, quick ragged falloff, finely broken up. */
+  pencil: Texture
+  /** Blunt soft-lead point — wider, darker, and much dustier at the rim. */
+  softpencil: Texture
 }
 
 /** Smooth 2-octave value noise on a coarse random grid — gives blobby, organic edge raggedness
@@ -218,6 +222,70 @@ export function createGouacheTip(size = 160): Texture {
   return Texture.from(canvas)
 }
 
+export function createPencilTip(size = 128): Texture {
+  const canvas = document.createElement('canvas')
+  canvas.width = size
+  canvas.height = size
+  const ctx = canvas.getContext('2d')!
+  const img = ctx.createImageData(size, size)
+  const data = img.data
+  const r = size / 2
+  const noise = makeValueNoise(97, 16)
+  const fine = makeValueNoise(101, 34)
+
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const dx = x - r
+      const dy = y - r
+      const dist = Math.sqrt(dx * dx + dy * dy) / r
+      const n = noise(x / size, y / size) - 0.5
+      const f = fine(x / size, y / size) - 0.5
+      // A sharpened point: dark, tight core with a fast falloff, so a single pass reads as a
+      // thin line rather than a smudge. The rim is chipped by noise but only slightly — the
+      // graphite's real broken-ness comes from the paper tooth in the wash shader, and doubling
+      // it up here would just turn the line to mush.
+      const falloff = 1 - Math.min(1, Math.max(0, (dist + n * 0.12 - 0.3) / 0.62))
+      const grainy = 0.86 + f * 0.28
+      const i = (y * size + x) * 4
+      data[i] = data[i + 1] = data[i + 2] = 255
+      data[i + 3] = Math.round(Math.min(1, Math.max(0, falloff * grainy)) * 255)
+    }
+  }
+  ctx.putImageData(img, 0, 0)
+  return Texture.from(canvas)
+}
+
+export function createSoftPencilTip(size = 160): Texture {
+  const canvas = document.createElement('canvas')
+  canvas.width = size
+  canvas.height = size
+  const ctx = canvas.getContext('2d')!
+  const img = ctx.createImageData(size, size)
+  const data = img.data
+  const r = size / 2
+  const noise = makeValueNoise(103, 14)
+  const fine = makeValueNoise(107, 30)
+
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const dx = x - r
+      const dy = y - r
+      const dist = Math.sqrt(dx * dx + dy * dy) / r
+      const n = noise(x / size, y / size) - 0.5
+      const f = fine(x / size, y / size) - 0.5
+      // Soft lead worn to a blunt nub: a broad dark body that trails off into loose dust, so
+      // strokes have that shaded, smudgy 6B shoulder either side of the core.
+      const falloff = 1 - Math.min(1, Math.max(0, (dist + n * 0.2 - 0.34) / 0.62))
+      const grainy = 0.7 + n * 0.24 + f * 0.3
+      const i = (y * size + x) * 4
+      data[i] = data[i + 1] = data[i + 2] = 255
+      data[i + 3] = Math.round(Math.min(1, Math.max(0, falloff * grainy)) * 255)
+    }
+  }
+  ctx.putImageData(img, 0, 0)
+  return Texture.from(canvas)
+}
+
 /** A clean, solid round dot with a soft feathered edge — no noise, no wobble. Stamped densely
  * along a smoothed path it makes an even, flat-width marker line. */
 export function createRoundTip(size = 128): Texture {
@@ -245,5 +313,7 @@ export function createWetTips(): WetTips {
     crayon: createCrayonTip(),
     pastel: createPastelTip(),
     gouache: createGouacheTip(),
+    pencil: createPencilTip(),
+    softpencil: createSoftPencilTip(),
   }
 }

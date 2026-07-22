@@ -1,9 +1,9 @@
-import { Application, Container, Graphics, RenderTexture, Sprite, TilingSprite, type Texture } from 'pixi.js'
+import { Application, Container, Graphics, RenderTexture, Sprite, TilingSprite } from 'pixi.js'
 import { GIFEncoder, applyPalette, quantize } from 'gifenc'
 import { DEFAULT_WIGGLE, type BrushId, type BrushTextures, type Stroke, type StrokePoint, type WiggleSettings } from './brush-types'
 import { drawWiggleInto } from './brushes/wobble'
 import { createSoftTexture, createRoughTexture, createGrainTexture } from './textures'
-import { createPaperTextures, DEFAULT_PAPER, PAPER_TILE_SIZE, type PaperId } from './papers'
+import { getPaperTexture, DEFAULT_PAPER, PAPER_TILE_SIZE, type PaperId } from './papers'
 import { createWetTips, type WetTips } from './tips'
 import { computeDabs, stampDabs } from './stamping'
 import { WET_BRUSHES, isWetBrush } from './wet-brushes'
@@ -52,7 +52,6 @@ export class PaintEngine {
 
   /** Bottom of the stack: the sheet of paper. Every layer multiplies over it. */
   private paperSprite: TilingSprite
-  private paperTextures: Record<PaperId, Texture>
   private paperId: PaperId = DEFAULT_PAPER
 
   /** The layer stack, bottom-to-top (index 0 is the bottom layer). */
@@ -114,12 +113,11 @@ export class PaintEngine {
     this.previewTexture = RenderTexture.create({ width, height, resolution: app.renderer.resolution })
     this.textures = { soft: createSoftTexture(), rough: createRoughTexture(), grain: createGrainTexture() }
 
-    this.paperTextures = createPaperTextures()
-    this.paperSprite = new TilingSprite({ texture: this.paperTextures[this.paperId], width, height })
+    this.paperSprite = new TilingSprite({ texture: getPaperTexture(this.paperId), width, height })
 
     this.silhouetteTexture = RenderTexture.create({ width, height, resolution: app.renderer.resolution })
     this.wetTips = createWetTips()
-    this.washFilter = new WashFilter(this.paperTextures[this.paperId], PAPER_TILE_SIZE)
+    this.washFilter = new WashFilter(getPaperTexture(this.paperId), PAPER_TILE_SIZE)
 
     this.previewSprite = new Sprite(this.previewTexture)
     this.cursorLayer.visible = false
@@ -200,9 +198,9 @@ export class PaintEngine {
   setPaper(id: PaperId) {
     if (id === this.paperId) return
     this.paperId = id
-    this.paperSprite.texture = this.paperTextures[id]
+    this.paperSprite.texture = getPaperTexture(id)
     // Wet-brush granulation samples the paper — rebake every layer so strokes settle into it.
-    this.washFilter.setPaper(this.paperTextures[id])
+    this.washFilter.setPaper(getPaperTexture(id))
     for (const layer of this.layers) this.rebuildBaked(layer)
   }
 
@@ -632,7 +630,8 @@ export class PaintEngine {
     this.silhouetteTexture.destroy(true)
     this.washFilter.destroy()
     for (const tip of Object.values(this.wetTips)) tip.destroy(true)
-    for (const texture of Object.values(this.paperTextures)) texture.destroy(true)
+    // Paper textures are deliberately NOT destroyed — they live in a shared module cache that
+    // outlives this engine (a resize builds a new one and reuses them).
     this.textures.soft.destroy(true)
     this.textures.rough.destroy(true)
     this.textures.grain.destroy(true)

@@ -69,6 +69,26 @@ const PROFILES: Record<BrushId, VoiceProfile> = {
     noiseRate: 0.12,
     flutter: { rate: 11, depth: 0.45 },
   },
+  /** Thin, fast graphite scritch: a narrow band way up top with a quick flutter. Where the
+   * crayon crawls (noiseRate 0.12), the pencil skitters — the rate stays near 1 so the texture
+   * is fine and papery rather than gravelly. */
+  pencil: {
+    gain: 0.4,
+    filterType: 'bandpass',
+    frequency: 2600,
+    q: 2.2,
+    noiseRate: 0.95,
+    flutter: { rate: 17, depth: 0.3 },
+  },
+  /** The same scritch worn soft: lower, breathier, less bite. */
+  softpencil: {
+    gain: 0.45,
+    filterType: 'bandpass',
+    frequency: 1500,
+    q: 1.2,
+    noiseRate: 0.7,
+    flutter: { rate: 9, depth: 0.2 },
+  },
   /** Muffled dark chalk shhh — halved noise rate softens the texture too. */
   pastel: { gain: 0.5, filterType: 'lowpass', frequency: 380, noiseRate: 0.5 },
   /** Creamy broad swish with a slow, wide filter sweep. */
